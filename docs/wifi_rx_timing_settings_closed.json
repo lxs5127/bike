@@ -1,0 +1,101 @@
+{
+  "experiment": "HELLO-only Linux kernel receive timestamps; no COMMAND",
+  "duration_s": 18,
+  "packets": 1081,
+  "gaps": 0,
+  "crc_bad": 0,
+  "kernel_interarrival_us": {
+    "count": 1080,
+    "maximum": 41830.096,
+    "p95": 20470.153
+  },
+  "reader_delay_us": {
+    "count": 1081,
+    "maximum": 190.388,
+    "p95": 149.866
+  },
+  "arrival_intervals_above_25ms": 10,
+  "reader_delays_above_5ms": 0,
+  "events": [
+    {
+      "t_s": 7.6083,
+      "wall_ns": 1791534229494762614,
+      "sequence": 25451,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 26745.733,
+      "reader_delay_us": 112.283
+    },
+    {
+      "t_s": 7.8405,
+      "wall_ns": 1791534229733236064,
+      "sequence": 25465,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 32999.956,
+      "reader_delay_us": 130.92
+    },
+    {
+      "t_s": 7.943,
+      "wall_ns": 1791534229844529068,
+      "sequence": 25471,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 41830.096,
+      "reader_delay_us": 108.682
+    },
+    {
+      "t_s": 8.0411,
+      "wall_ns": 1791534229933124530,
+      "sequence": 25477,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 32307.071,
+      "reader_delay_us": 112.512
+    },
+    {
+      "t_s": 9.0905,
+      "wall_ns": 1791534230982622588,
+      "sequence": 25540,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 32460.584,
+      "reader_delay_us": 139.354
+    },
+    {
+      "t_s": 9.1916,
+      "wall_ns": 1791534231081192468,
+      "sequence": 25546,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 29940.396,
+      "reader_delay_us": 110.716
+    },
+    {
+      "t_s": 13.1412,
+      "wall_ns": 1791534235026778198,
+      "sequence": 25783,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 25840.191,
+      "reader_delay_us": 105.972
+    },
+    {
+      "t_s": 14.8574,
+      "wall_ns": 1791534236742171279,
+      "sequence": 25886,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 25105.892,
+      "reader_delay_us": 121.405
+    },
+    {
+      "t_s": 15.6573,
+      "wall_ns": 1791534237550698692,
+      "sequence": 25934,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 33711.49,
+      "reader_delay_us": 116.481
+    },
+    {
+      "t_s": 17.8574,
+      "wall_ns": 1791534239750085990,
+      "sequence": 26066,
+      "esp_interval_us": 16689,
+      "kernel_interval_us": 33002.468,
+      "reader_delay_us": 110.673
+    }
+  ]
+}

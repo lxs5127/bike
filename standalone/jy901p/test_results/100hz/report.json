@@ -1,0 +1,17 @@
+{
+  "tested_at": "2026-10-28T18:32:18.772270+08:00",
+  "baud": 460800,
+  "ready_log": "I (755) JY901P: Ready: SDA=21 SCL=22 addr=0x50 IIC=100000Hz; output=100Hz print=100Hz console=460800baud",
+  "sample_count": 2015,
+  "device_output_hz": 100.0,
+  "host_receive_hz": 99.99473109689175,
+  "device_period_ms_mean": 10,
+  "device_period_ms_min": 10,
+  "device_period_ms_max": 10,
+  "device_period_ms_histogram": {
+    "10": 2014
+  },
+  "errors": [],
+  "scope": "Measures ESP32 I2C read/serial log cadence, not independent JY901P internal sample timestamps.",
+  "pass": true
+}

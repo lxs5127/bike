@@ -1,0 +1,127 @@
+{
+  "started_at": "2026-10-28T18:06:06.976282+08:00",
+  "port": "/dev/ttyUSB0",
+  "baud": 115200,
+  "duration_s": 60.098,
+  "ready": true,
+  "sample_count": 592,
+  "errors": [],
+  "communication_pass": true,
+  "baseline_first_10s": {
+    "acc_x_g": {
+      "min": 0.342,
+      "max": 0.352,
+      "mean": 0.34705494505494505
+    },
+    "acc_y_g": {
+      "min": -0.944,
+      "max": -0.934,
+      "mean": -0.9386263736263736
+    },
+    "acc_z_g": {
+      "min": 0.039,
+      "max": 0.043,
+      "mean": 0.041263736263736264
+    },
+    "gyro_x_deg_s": {
+      "min": -0.061,
+      "max": 0.122,
+      "mean": 0.010725274725274726
+    },
+    "gyro_y_deg_s": {
+      "min": -0.122,
+      "max": 0.061,
+      "mean": -0.007373626373626373
+    },
+    "gyro_z_deg_s": {
+      "min": -15.259,
+      "max": 15.442,
+      "mean": 0.16634065934065934
+    },
+    "roll_deg": {
+      "min": -87.484,
+      "max": -87.473,
+      "mean": -87.479
+    },
+    "pitch_deg": {
+      "min": -20.308,
+      "max": -20.281,
+      "mean": -20.294846153846155
+    },
+    "yaw_deg": {
+      "min": -88.77,
+      "max": -88.693,
+      "mean": -88.73412087912088
+    }
+  },
+  "baseline_acc_norm_g_mean": 1.0015873318679642,
+  "all_samples": {
+    "acc_x_g": {
+      "min": -1.06,
+      "max": 0.891,
+      "mean": 0.020309121621621615
+    },
+    "acc_y_g": {
+      "min": -1.312,
+      "max": 0.0,
+      "mean": -0.43413175675675675
+    },
+    "acc_z_g": {
+      "min": -0.139,
+      "max": 1.054,
+      "mean": 0.5994307432432432
+    },
+    "gyro_x_deg_s": {
+      "min": -92.59,
+      "max": 144.043,
+      "mean": 1.2799679054054054
+    },
+    "gyro_y_deg_s": {
+      "min": -143.677,
+      "max": 80.2,
+      "mean": -0.5477601351351351
+    },
+    "gyro_z_deg_s": {
+      "min": -200.439,
+      "max": 120.85,
+      "mean": 0.5645591216216216
+    },
+    "roll_deg": {
+      "min": -87.484,
+      "max": -3.669,
+      "mean": -37.12932432432432
+    },
+    "pitch_deg": {
+      "min": -58.755,
+      "max": 71.235,
+      "mean": -0.7964915540540545
+    },
+    "yaw_deg": {
+      "min": -90.099,
+      "max": 16.842,
+      "mean": -38.46537668918919
+    }
+  },
+  "host_receive_interval_s_mean": 0.09999830456852792,
+  "host_receive_interval_s_max": 0.10056399999999854,
+  "notes": "Register output configured and read back at 200 Hz; this log reads and prints about 10 Hz. Host receive intervals do not measure internal sensor sample rate. User confirmed completing physical motion. Absolute angle accuracy, calibration, internal sample-rate stability and the cause of gyro-Z transients were not verified.",
+  "board": "ESP32-D0WDQ6 revision v1.1",
+  "flash_verified": true,
+  "user_confirmed_motion_completed": true,
+  "motion_observed": true,
+  "initial_pose_gyro_z_transients": [
+    {
+      "elapsed_s": 6.895513,
+      "gyro_z_deg_s": 15.442
+    },
+    {
+      "elapsed_s": 7.695368,
+      "gyro_z_deg_s": 15.198
+    },
+    {
+      "elapsed_s": 8.495385,
+      "gyro_z_deg_s": -15.259
+    }
+  ],
+  "overall_result": "Basic I2C communication and motion response verified; initial-pose gyro-Z transient spikes require further investigation."
+}

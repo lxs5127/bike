@@ -1,0 +1,477 @@
+{
+  "experiment": "HELLO-only Linux kernel receive timestamps; no COMMAND",
+  "duration_s": 18,
+  "packets": 1078,
+  "gaps": 0,
+  "crc_bad": 0,
+  "kernel_interarrival_us": {
+    "count": 1077,
+    "maximum": 122992.916,
+    "p95": 25453.75
+  },
+  "reader_delay_us": {
+    "count": 1078,
+    "maximum": 188.105,
+    "p95": 149.3
+  },
+  "arrival_intervals_above_25ms": 57,
+  "reader_delays_above_5ms": 0,
+  "events": [
+    {
+      "t_s": 0.0654,
+      "wall_ns": 1791533532188094387,
+      "sequence": 74140,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 74082.174,
+      "reader_delay_us": 96.759
+    },
+    {
+      "t_s": 0.1671,
+      "wall_ns": 1791533532248163713,
+      "sequence": 74146,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 32410.536,
+      "reader_delay_us": 169.147
+    },
+    {
+      "t_s": 0.3312,
+      "wall_ns": 1791533532411457701,
+      "sequence": 74156,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 31529.702,
+      "reader_delay_us": 86.474
+    },
+    {
+      "t_s": 0.6653,
+      "wall_ns": 1791533532744700128,
+      "sequence": 74176,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 30713.267,
+      "reader_delay_us": 116.948
+    },
+    {
+      "t_s": 0.7311,
+      "wall_ns": 1791533532805524735,
+      "sequence": 74180,
+      "esp_interval_us": 16671,
+      "kernel_interval_us": 25766.03,
+      "reader_delay_us": 113.13
+    },
+    {
+      "t_s": 0.7683,
+      "wall_ns": 1791533532849468479,
+      "sequence": 74182,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 32473.171,
+      "reader_delay_us": 144.816
+    },
+    {
+      "t_s": 1.0662,
+      "wall_ns": 1791533533145470987,
+      "sequence": 74200,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 30524.493,
+      "reader_delay_us": 128.88
+    },
+    {
+      "t_s": 1.4321,
+      "wall_ns": 1791533533512355212,
+      "sequence": 74222,
+      "esp_interval_us": 16671,
+      "kernel_interval_us": 31569.101,
+      "reader_delay_us": 68.622
+    },
+    {
+      "t_s": 1.8645,
+      "wall_ns": 1791533533939547304,
+      "sequence": 74248,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 26351.137,
+      "reader_delay_us": 25.6
+    },
+    {
+      "t_s": 2.7815,
+      "wall_ns": 1791533534867491612,
+      "sequence": 74303,
+      "esp_interval_us": 16665,
+      "kernel_interval_us": 37326.277,
+      "reader_delay_us": 103.625
+    },
+    {
+      "t_s": 3.1027,
+      "wall_ns": 1791533535181893025,
+      "sequence": 74322,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 30520.95,
+      "reader_delay_us": 121.678
+    },
+    {
+      "t_s": 3.4982,
+      "wall_ns": 1791533535575248426,
+      "sequence": 74346,
+      "esp_interval_us": 16665,
+      "kernel_interval_us": 28424.246,
+      "reader_delay_us": 109.467
+    },
+    {
+      "t_s": 7.6481,
+      "wall_ns": 1791533539722650065,
+      "sequence": 74595,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 25930.19,
+      "reader_delay_us": 124.329
+    },
+    {
+      "t_s": 9.0148,
+      "wall_ns": 1791533541089023937,
+      "sequence": 74677,
+      "esp_interval_us": 16668,
+      "kernel_interval_us": 25581.781,
+      "reader_delay_us": 106.84
+    },
+    {
+      "t_s": 10.7319,
+      "wall_ns": 1791533542808316267,
+      "sequence": 74780,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 27810.524,
+      "reader_delay_us": 108.14
+    },
+    {
+      "t_s": 11.5147,
+      "wall_ns": 1791533543588443486,
+      "sequence": 74827,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 25066.021,
+      "reader_delay_us": 108.439
+    },
+    {
+      "t_s": 12.3479,
+      "wall_ns": 1791533544461408426,
+      "sequence": 74877,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 64719.702,
+      "reader_delay_us": 34.818
+    },
+    {
+      "t_s": 12.432,
+      "wall_ns": 1791533544526119038,
+      "sequence": 74882,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 45334.85,
+      "reader_delay_us": 158.211
+    },
+    {
+      "t_s": 12.5002,
+      "wall_ns": 1791533544594032314,
+      "sequence": 74886,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 45195.648,
+      "reader_delay_us": 119.355
+    },
+    {
+      "t_s": 12.5683,
+      "wall_ns": 1791533544662903381,
+      "sequence": 74890,
+      "esp_interval_us": 16668,
+      "kernel_interval_us": 45884.243,
+      "reader_delay_us": 32.956
+    },
+    {
+      "t_s": 12.634,
+      "wall_ns": 1791533544728165962,
+      "sequence": 74894,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 45471.456,
+      "reader_delay_us": 32.795
+    },
+    {
+      "t_s": 12.698,
+      "wall_ns": 1791533544815566830,
+      "sequence": 74898,
+      "esp_interval_us": 16737,
+      "kernel_interval_us": 68802.24,
+      "reader_delay_us": 45.835
+    },
+    {
+      "t_s": 12.7833,
+      "wall_ns": 1791533544878080996,
+      "sequence": 74903,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 46083.328,
+      "reader_delay_us": 87.275
+    },
+    {
+      "t_s": 12.8479,
+      "wall_ns": 1791533544945416011,
+      "sequence": 74907,
+      "esp_interval_us": 16713,
+      "kernel_interval_us": 48779.158,
+      "reader_delay_us": 82.902
+    },
+    {
+      "t_s": 12.9163,
+      "wall_ns": 1791533545008391459,
+      "sequence": 74911,
+      "esp_interval_us": 16624,
+      "kernel_interval_us": 43391.55,
+      "reader_delay_us": 74.667
+    },
+    {
+      "t_s": 12.9814,
+      "wall_ns": 1791533545073529386,
+      "sequence": 74915,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 43419.551,
+      "reader_delay_us": 72.601
+    },
+    {
+      "t_s": 13.0482,
+      "wall_ns": 1791533545158530894,
+      "sequence": 74919,
+      "esp_interval_us": 16713,
+      "kernel_interval_us": 61688.557,
+      "reader_delay_us": 92.004
+    },
+    {
+      "t_s": 13.1355,
+      "wall_ns": 1791533545228044452,
+      "sequence": 74924,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 43769.783,
+      "reader_delay_us": 43.003
+    },
+    {
+      "t_s": 13.199,
+      "wall_ns": 1791533545312568200,
+      "sequence": 74928,
+      "esp_interval_us": 16713,
+      "kernel_interval_us": 64835.054,
+      "reader_delay_us": 40.531
+    },
+    {
+      "t_s": 13.2814,
+      "wall_ns": 1791533545377658636,
+      "sequence": 74933,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 47553.852,
+      "reader_delay_us": 60.348
+    },
+    {
+      "t_s": 13.3482,
+      "wall_ns": 1791533545463612072,
+      "sequence": 74937,
+      "esp_interval_us": 16713,
+      "kernel_interval_us": 66747.463,
+      "reader_delay_us": 33.463
+    },
+    {
+      "t_s": 13.4481,
+      "wall_ns": 1791533545534783146,
+      "sequence": 74943,
+      "esp_interval_us": 16713,
+      "kernel_interval_us": 37937.769,
+      "reader_delay_us": 29.343
+    },
+    {
+      "t_s": 13.4996,
+      "wall_ns": 1791533545623369346,
+      "sequence": 74946,
+      "esp_interval_us": 16713,
+      "kernel_interval_us": 75001.254,
+      "reader_delay_us": 28.257
+    },
+    {
+      "t_s": 13.5816,
+      "wall_ns": 1791533545688589093,
+      "sequence": 74951,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 58268.913,
+      "reader_delay_us": 38.948
+    },
+    {
+      "t_s": 13.6647,
+      "wall_ns": 1791533545751658954,
+      "sequence": 74956,
+      "esp_interval_us": 16635,
+      "kernel_interval_us": 38217.585,
+      "reader_delay_us": 35.647
+    },
+    {
+      "t_s": 13.7162,
+      "wall_ns": 1791533545814925954,
+      "sequence": 74959,
+      "esp_interval_us": 16636,
+      "kernel_interval_us": 50022.099,
+      "reader_delay_us": 30.964
+    },
+    {
+      "t_s": 13.7827,
+      "wall_ns": 1791533545880128197,
+      "sequence": 74963,
+      "esp_interval_us": 16671,
+      "kernel_interval_us": 48723.554,
+      "reader_delay_us": 22.583
+    },
+    {
+      "t_s": 13.8484,
+      "wall_ns": 1791533545945369298,
+      "sequence": 74967,
+      "esp_interval_us": 16699,
+      "kernel_interval_us": 48217.027,
+      "reader_delay_us": 31.184
+    },
+    {
+      "t_s": 13.9208,
+      "wall_ns": 1791533546010072212,
+      "sequence": 74971,
+      "esp_interval_us": 16640,
+      "kernel_interval_us": 40519.518,
+      "reader_delay_us": 33.473
+    },
+    {
+      "t_s": 13.9814,
+      "wall_ns": 1791533546075911017,
+      "sequence": 74975,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 45811.051,
+      "reader_delay_us": 32.077
+    },
+    {
+      "t_s": 14.15,
+      "wall_ns": 1791533546221579297,
+      "sequence": 74979,
+      "esp_interval_us": 16691,
+      "kernel_interval_us": 122992.916,
+      "reader_delay_us": 113.711
+    },
+    {
+      "t_s": 14.1824,
+      "wall_ns": 1791533546280233803,
+      "sequence": 74987,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 49209.273,
+      "reader_delay_us": 66.835
+    },
+    {
+      "t_s": 14.2664,
+      "wall_ns": 1791533546353876044,
+      "sequence": 74992,
+      "esp_interval_us": 16643,
+      "kernel_interval_us": 38807.341,
+      "reader_delay_us": 125.792
+    },
+    {
+      "t_s": 14.3157,
+      "wall_ns": 1791533546440183495,
+      "sequence": 74995,
+      "esp_interval_us": 16648,
+      "kernel_interval_us": 75819.511,
+      "reader_delay_us": 117.143
+    },
+    {
+      "t_s": 14.3981,
+      "wall_ns": 1791533546486864525,
+      "sequence": 75000,
+      "esp_interval_us": 16683,
+      "kernel_interval_us": 40116.002,
+      "reader_delay_us": 128.109
+    },
+    {
+      "t_s": 14.4667,
+      "wall_ns": 1791533546558778500,
+      "sequence": 75004,
+      "esp_interval_us": 16652,
+      "kernel_interval_us": 43442.894,
+      "reader_delay_us": 114.03
+    },
+    {
+      "t_s": 14.5315,
+      "wall_ns": 1791533546624345800,
+      "sequence": 75008,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 44265.685,
+      "reader_delay_us": 113.475
+    },
+    {
+      "t_s": 14.5981,
+      "wall_ns": 1791533546690113066,
+      "sequence": 75012,
+      "esp_interval_us": 16684,
+      "kernel_interval_us": 43390.218,
+      "reader_delay_us": 122.955
+    },
+    {
+      "t_s": 14.6648,
+      "wall_ns": 1791533546764138209,
+      "sequence": 75016,
+      "esp_interval_us": 16651,
+      "kernel_interval_us": 50728.015,
+      "reader_delay_us": 40.081
+    },
+    {
+      "t_s": 14.7364,
+      "wall_ns": 1791533546831634017,
+      "sequence": 75020,
+      "esp_interval_us": 16671,
+      "kernel_interval_us": 46539.478,
+      "reader_delay_us": 59.861
+    },
+    {
+      "t_s": 14.798,
+      "wall_ns": 1791533546915114784,
+      "sequence": 75024,
+      "esp_interval_us": 16681,
+      "kernel_interval_us": 68439.4,
+      "reader_delay_us": 28.298
+    },
+    {
+      "t_s": 14.8816,
+      "wall_ns": 1791533546999948527,
+      "sequence": 75029,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 69676.403,
+      "reader_delay_us": 36.902
+    },
+    {
+      "t_s": 14.982,
+      "wall_ns": 1791533547091248350,
+      "sequence": 75035,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 60527.449,
+      "reader_delay_us": 39.437
+    },
+    {
+      "t_s": 15.0658,
+      "wall_ns": 1791533547155746514,
+      "sequence": 75040,
+      "esp_interval_us": 16655,
+      "kernel_interval_us": 41219.482,
+      "reader_delay_us": 53.421
+    },
+    {
+      "t_s": 16.8152,
+      "wall_ns": 1791533548889009849,
+      "sequence": 75145,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 25225.604,
+      "reader_delay_us": 140.18
+    },
+    {
+      "t_s": 16.9988,
+      "wall_ns": 1791533549072857984,
+      "sequence": 75156,
+      "esp_interval_us": 16668,
+      "kernel_interval_us": 25453.75,
+      "reader_delay_us": 168.61
+    },
+    {
+      "t_s": 17.1483,
+      "wall_ns": 1791533549230955340,
+      "sequence": 75165,
+      "esp_interval_us": 16667,
+      "kernel_interval_us": 33967.69,
+      "reader_delay_us": 137.341
+    }
+  ]
+}

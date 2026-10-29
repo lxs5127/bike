@@ -1,0 +1,9 @@
+{
+  "measurement_seconds": 19.999401218999992,
+  "received_samples": 2000,
+  "host_receive_hz": 100.0029939946374,
+  "draw_callbacks": 1955,
+  "draw_callback_hz": 97.75292662975805,
+  "error": "",
+  "note": "Drawing callbacks measure software refresh, not physical monitor refresh rate."
+}

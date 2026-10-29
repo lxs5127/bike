@@ -1,0 +1,15 @@
+{
+  "connection": "BalanceBike-ESP32",
+  "interface": "wlx8c772b016deb",
+  "previous_profile_bssid": "",
+  "previous_profile_powersave": 0,
+  "runtime_powersave_before_test": "off",
+  "target_bssid": "08:B6:1F:9B:D1:21",
+  "rollback_profile_command": "nmcli connection modify BalanceBike-ESP32 802-11-wireless.bssid '' 802-11-wireless.powersave 0",
+  "documentation": "https://networkmanager.dev/docs/api/latest/settings-802-11-wireless.html",
+  "rollback_completed": true,
+  "restored_profile_bssid": "",
+  "restored_profile_powersave": 0,
+  "runtime_power_save_after_rollback": "off",
+  "rollback_reactivated_connection": false
+}

@@ -1,0 +1,9 @@
+{
+  "source_npz": "/home/lxs/work_place/balance_bike/deploy/policies/best_turn.npz",
+  "npz_sha256": "df3680d0e57bd5f600a7e3aeb189cd52e5a1388189d8b8a02a1eaee1dbf2e8cc",
+  "board_timing_measured": false,
+  "motor_output_tested": false,
+  "max_actor_action_error": 1.7583370208740234e-06,
+  "max_trajectory_action_error": 4.760921001434326e-06,
+  "tests_passed": 6
+}

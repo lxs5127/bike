@@ -1,0 +1,47 @@
+{
+  "source_npz": "/home/lxs/work_place/balance_bike/deploy/policies/best_turn.npz",
+  "npz_sha256": "df3680d0e57bd5f600a7e3aeb189cd52e5a1388189d8b8a02a1eaee1dbf2e8cc",
+  "checkpoint_sha256": "e83dbcdcabbb4920de72bf26d627fbf797f7c7a10ace29bde87271a3dcfe9af5",
+  "urdf_sha256": "a48705adf7582314f5fe4fc25a714ac806b7b5c29b93ef02ea003d4daaffb925",
+  "network": [
+    5,
+    128,
+    128,
+    1
+  ],
+  "activation": "ELU",
+  "mirrored_branches": 2,
+  "weights_float32_bytes": 69636,
+  "control_hz": 60,
+  "observations": [
+    "sin(roll)",
+    "cos(roll)",
+    "clip(body_roll_rate_rad_s,-5,5)",
+    "clip(flywheel_rad_s/420,-1.5,1.5)"
+  ],
+  "internal_memory": "trapezoidal speed integral; clip(rotation_rad/1000,-10,10)",
+  "simulation_limits_only": {
+    "torque_nm": 4.9,
+    "speed_rad_s": 250.0,
+    "fall_angle_deg": 10.0,
+    "inertia_kg_m2": 0.00739
+  },
+  "config": {
+    "terrain": "wave",
+    "wave_amplitude": 0.1,
+    "wave_wavelength": 3.0,
+    "cruise_speed": 0.1,
+    "front_wheel_mode": "passive",
+    "steer_range": 0.0,
+    "steer_rate": 0.03,
+    "steer_start_seconds": 5.0,
+    "steer_stiffness": 45.0,
+    "steer_damping": 8.0,
+    "max_flywheel_speed": 250.0,
+    "fall_angle_degrees": 10.0,
+    "action_smoothing_alpha": 1.0,
+    "flywheel_unload_kw": 0.0,
+    "flywheel_unload_ki": 0.001,
+    "flywheel_momentum_ki": 0.0
+  }
+}

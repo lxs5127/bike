@@ -1,0 +1,79 @@
+menu "Balance bike framework"
+    config BIKE_WIFI_DIAGNOSTIC
+        bool "Run isolated Wi-Fi diagnostic instead of bike application"
+        default n
+        help
+            Print a ten-second heartbeat without Wi-Fi, then start a minimal
+            SoftAP based on the ESP-IDF example. No bike tasks, UDP sockets,
+            sensor ports or motor ports run in this mode. Disable this option
+            and rebuild to restore laptop policy communication.
+
+    config BIKE_MOCK_HARDWARE
+        bool "Use synthetic ODrive feedback / fallback IMU (no motor output)"
+        default y
+        help
+            Keep ODrive feedback synthetic. The IMU is also synthetic unless
+            BIKE_IMU_JY901P is enabled. Disabling this still requires a real
+            ODrive port implementation. There is no automatic motor arming.
+
+    config BIKE_IMU_JY901P
+        bool "Use real JY901P IMU over I2C"
+        default y
+        help
+            Read JY901P roll and body-X angular rate over I2C, independently
+            of the ODrive mock option. Mount sensor X forward, Y left, Z up.
+            Startup fails if the sensor is missing or configuration fails.
+
+    if BIKE_IMU_JY901P
+        config BIKE_IMU_SDA_GPIO
+            int "JY901P SDA GPIO"
+            range 0 33
+            default 21
+
+        config BIKE_IMU_SCL_GPIO
+            int "JY901P SCL GPIO"
+            range 0 33
+            default 22
+
+        config BIKE_IMU_I2C_ADDRESS
+            hex "JY901P 7-bit I2C address (not shifted)"
+            range 0x08 0x77
+            default 0x50
+
+        config BIKE_IMU_I2C_HZ
+            int "JY901P I2C clock (Hz)"
+            range 100000 400000
+            default 100000
+
+        config BIKE_IMU_BANDWIDTH
+            int "JY901P bandwidth code (0=256, 1=184, 2=94, 3=44, 4=21, 5=10, 6=5 Hz)"
+            range 0 6
+            default 2
+            help
+                Vendor SDK bandwidth enumeration. Nominal bandwidth names
+                can vary with sensor firmware. Default is code 2 (94 Hz).
+    endif
+
+    config BIKE_MOCK_MOTION
+        bool "Generate a +/-2 degree, 4 second mock roll waveform"
+        depends on BIKE_MOCK_HARDWARE && !BIKE_IMU_JY901P
+        default y
+        help
+            Synthetic roll and its analytic gyro derivative exercise changing
+            policy inputs. Flywheel feedback stays at zero. This is an input
+            waveform, not a vehicle dynamics simulation or a closed-loop test.
+            Disable to restore the fixed 0.2 degree communication test.
+
+    config BIKE_WIFI_AP_SSID
+        string "ESP32 control hotspot SSID"
+        default "BalanceBike-ESP32"
+
+    config BIKE_WIFI_AP_PASSWORD
+        string "ESP32 control hotspot password (8-63 characters)"
+        default "balance123"
+
+    config BIKE_WIFI_AP_CHANNEL
+        int "2.4 GHz hotspot channel"
+        range 1 11
+        default 6
+endmenu
