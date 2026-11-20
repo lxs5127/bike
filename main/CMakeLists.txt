@@ -10,5 +10,5 @@ endif()
 idf_component_register(
     SRCS ${bike_sources}
     INCLUDE_DIRS "." "control" "link" "ports"
-    REQUIRES esp_timer freertos log esp_hw_support esp_wifi esp_netif esp_event nvs_flash lwip esp_driver_i2c esp_driver_gpio
+    REQUIRES esp_timer freertos log esp_hw_support esp_wifi esp_netif esp_event nvs_flash lwip esp_driver_i2c esp_driver_gpio odrive_uart
 )

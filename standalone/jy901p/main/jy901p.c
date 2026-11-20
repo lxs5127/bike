@@ -1,6 +1,6 @@
 /*
  * JY901P 独立 IIC 示例，适用于 ESP32 / ESP-IDF 5.4。
- * 所有引脚、参数、初始化、读取、换算和串口打印均在本文件中。
+ * 引脚、初始化、读取和换算在本文件中，100 Hz 数据通过 Wi-Fi 发送到电脑。
  *
  * 接线：SDA -> GPIO21，SCL -> GPIO22，VCC -> 3.3V，GND -> GND。
  * SDA/SCL 各需约 4.7kΩ 上拉到 3.3V（模块已有上拉时无需重复添加）。
@@ -11,11 +11,16 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include "sdkconfig.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "nvs_flash.h"
+#include "wifi_link.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -26,7 +31,7 @@
 #define JY901P_I2C_ADDRESS      0x50U      /* 7 位地址，无需左移 */
 #define JY901P_I2C_CLOCK_HZ     100000U
 #define JY901P_I2C_TIMEOUT_MS   20         /* 有限等待，至少一个 RTOS tick */
-#define JY901P_PRINT_PERIOD_MS  10         /* 每 10 ms 读取并打印一组，即 100 Hz */
+#define JY901P_SAMPLE_PERIOD_MS 10        /* 每 10 ms 读取并通过 Wi-Fi 发布，即 100 Hz */
 #define JY901P_OUTPUT_RATE      0x0009U    /* 模块输出率：100 Hz */
 #define JY901P_BANDWIDTH        0x0002U    /* SDK 标称带宽：94 Hz */
 
@@ -181,6 +186,13 @@ static esp_err_t jy901p_read(jy901p_sample_t *sample)
     return ESP_OK;
 }
 
+static bool display_command(const char *command, char *reply, size_t size)
+{
+    (void)command;
+    snprintf(reply,size,"IMU-only firmware: use the viewer to set its display reference; no motor commands.");
+    return false;
+}
+
 void app_main(void)
 {
     esp_err_t result = jy901p_init();
@@ -189,24 +201,28 @@ void app_main(void)
                  esp_err_to_name(result));
         return;
     }
-    ESP_LOGI(TAG, "Ready: SDA=%d SCL=%d addr=0x%02x IIC=%uHz; output=100Hz print=100Hz console=%dbaud",
+    result = nvs_flash_init();
+    if (result == ESP_OK) result = wifi_link_init(display_command);
+    if (result != ESP_OK) { ESP_LOGE(TAG,"Wi-Fi init failed: %s",esp_err_to_name(result)); return; }
+    ESP_LOGI(TAG, "Ready: SDA=%d SCL=%d addr=0x%02x IIC=%uHz; output=100Hz Wi-Fi=100Hz debug_console=%dbaud",
              JY901P_SDA_GPIO, JY901P_SCL_GPIO, JY901P_I2C_ADDRESS,
              (unsigned)JY901P_I2C_CLOCK_HZ, CONFIG_ESP_CONSOLE_UART_BAUDRATE);
 
-    /* 按绝对 tick 周期调度，避免将 IIC 读取和打印耗时累加进 10 ms 周期。
-     * 串口配置为 460800 baud，保证完整文本输出有足够带宽。 */
+    /* 采集和网络发送分离；无连接时继续采集，重连只发送最新读数。 */
     TickType_t previous_wake = xTaskGetTickCount();
     while (1) {
         jy901p_sample_t sample;
+        int64_t started = esp_timer_get_time();
         result = jy901p_read(&sample);
+        wifi_telemetry_t status = {.mode=-1};
         if (result == ESP_OK) {
-            ESP_LOGI(TAG, "acc[g] X=%.3f Y=%.3f Z=%.3f | gyro[deg/s] X=%.3f Y=%.3f Z=%.3f | angle[deg] Roll=%.3f Pitch=%.3f Yaw=%.3f",
-                     (double)sample.acceleration_g[0], (double)sample.acceleration_g[1], (double)sample.acceleration_g[2],
-                     (double)sample.gyro_deg_s[0], (double)sample.gyro_deg_s[1], (double)sample.gyro_deg_s[2],
-                     (double)sample.angle_deg[0], (double)sample.angle_deg[1], (double)sample.angle_deg[2]);
-        } else {
-            ESP_LOGW(TAG, "Read failed: %s", esp_err_to_name(result));
+            status.imu.valid = true;
+            status.imu.timestamp_us = started-10000;
+            memcpy(status.imu.acceleration_g,sample.acceleration_g,sizeof(sample.acceleration_g));
+            memcpy(status.imu.gyro_deg_s,sample.gyro_deg_s,sizeof(sample.gyro_deg_s));
+            memcpy(status.imu.angles_deg,sample.angle_deg,sizeof(sample.angle_deg));
         }
-        xTaskDelayUntil(&previous_wake, pdMS_TO_TICKS(JY901P_PRINT_PERIOD_MS));
+        wifi_link_publish(&status);
+        xTaskDelayUntil(&previous_wake, pdMS_TO_TICKS(JY901P_SAMPLE_PERIOD_MS));
     }
 }

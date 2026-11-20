@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """JY901P live desktop attitude viewer. Uses Python's built-in Tkinter.
 
-Default: follow the serial monitor's /tmp/jy901p-live-monitor.log.
-Direct serial (after closing the monitor): python3 view_3d.py --port /dev/ttyUSB0
+Default: receive over Wi-Fi from 192.168.4.1:3334 (no serial port).
+Wi-Fi: python3 view_3d.py --wifi 192.168.4.1
+Direct serial (after closing the monitor): python3 view_3d.py --port auto
+To follow a serial-monitor log instead: python3 view_3d.py --log /path/to/live.log
 Drag to orbit the camera; scroll to zoom. Reference changes the display only.
 """
 import argparse
 from collections import deque
 from dataclasses import dataclass
+import json
 import math
+import os
 from pathlib import Path
 import re
+import tempfile
 import time
 import tkinter as tk
 
@@ -21,6 +26,7 @@ MUTED = '#8da3bf'
 AXES = ('#ff727b', '#58dfad', '#6ca9ff')
 DEFAULT_BAUD = 460800
 REFRESH_HZ = 100
+DEFAULT_REFERENCE_FILE = Path(__file__).resolve().with_name('reference_pose.json')
 FLOAT = r'([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)'
 PATTERN = re.compile(
     r'acc\[g\]\s+X=' + FLOAT + r'\s+Y=' + FLOAT + r'\s+Z=' + FLOAT
@@ -70,6 +76,78 @@ def rotation(angles):
             (-sp, cp * sr, cp * cr))
 
 
+def matrix_angles(matrix):
+    """Return Roll/Pitch/Yaw matching rotation(), including the ±90° singularity."""
+    cos_pitch = math.hypot(matrix[0][0], matrix[1][0])
+    pitch = math.atan2(-matrix[2][0], cos_pitch)
+    if cos_pitch > 1e-8:
+        roll = math.atan2(matrix[2][1], matrix[2][2])
+        yaw = math.atan2(matrix[1][0], matrix[0][0])
+    else:
+        # At gimbal lock roll/yaw are coupled. Choose yaw=0 while preserving R.
+        roll = math.atan2(-matrix[1][2], matrix[1][1])
+        yaw = 0.
+    values = tuple(map(math.degrees, (roll, pitch, yaw)))
+    return tuple(0. if abs(value) < 1e-9 else value for value in values)
+
+
+def reference_angles(values):
+    """Validate a saved sensor pose before using it as a display reference."""
+    if (not isinstance(values, (tuple, list)) or len(values) != 3 or
+            any(type(value) not in (int, float) or not -180. <= value <= 180. or
+                not math.isfinite(value) for value in values)):
+        raise ValueError('零点必须包含三个有效角度，范围为 -180° 到 180°')
+    return tuple(map(float, values))
+
+
+def load_reference(path):
+    try:
+        with Path(path).open(encoding='utf-8') as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return None
+    if not isinstance(data, dict) or type(data.get('version')) is not int or data['version'] != 1:
+        raise ValueError('零点文件格式不受支持')
+    return reference_angles(data.get('reference_angles_deg'))
+
+
+def save_reference(path, angles):
+    """Replace atomically: an interrupted write must not destroy the old zero."""
+    angles = reference_angles(angles)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent,
+                                         prefix='.'+path.name+'.', suffix='.tmp', delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump({'version': 1, 'reference_angles_deg': angles}, handle, indent=2, allow_nan=False)
+            handle.write('\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def select_serial_port(requested, ports):
+    """Handle USB re-enumeration without guessing between multiple devices."""
+    ports = set(ports)
+    if requested and requested != 'auto':
+        if requested in ports:
+            return requested
+        # A stable /dev/serial/by-id path or other explicit port is used as-is.
+        if not re.fullmatch(r'/dev/tty(?:USB|ACM)\d+', requested):
+            return requested
+    usb_ports = sorted(port for port in ports if re.fullmatch(r'/dev/tty(?:USB|ACM)\d+', port))
+    if len(usb_ports) == 1:
+        return usb_ports[0]
+    if not usb_ports:
+        raise FileNotFoundError('未检测到 USB 串口，请连接 ESP32 后重新启动窗口。')
+    raise OSError('检测到多个 USB 串口，请用 --port 指定设备：'+', '.join(usb_ports))
+
+
 class Stream:
     """Consume complete lines without blocking the GUI or replaying a backlog."""
     def __init__(self, log_path=None, port=None, baud=DEFAULT_BAUD):
@@ -79,11 +157,14 @@ class Stream:
         self.port = port
         if port:
             import serial
+            from serial.tools import list_ports
+            self.port = select_serial_port(port, [item.device for item in list_ports.comports()])
             self.handle = serial.Serial(port=None, baudrate=baud, timeout=0, exclusive=True)
             self.handle.dtr = False
             self.handle.rts = False
-            self.handle.port = port
+            self.handle.port = self.port
             self.handle.open()
+            print(f'Serial connected: {self.port} @ {baud} baud', flush=True)
         else:
             self.handle = self.log_path.open('rb')
             self.handle.seek(0, 2)
@@ -118,9 +199,26 @@ class Stream:
             self.handle.close()
 
 
+class WifiStream:
+    def __init__(self, address='192.168.4.1', port=3334):
+        from wifi_client import WifiClient
+        self.client = WifiClient(address, port)
+
+    def poll(self):
+        data, count = self.client.poll()
+        if data is None:
+            return None, 0
+        return Sample(tuple(data['acc_g']), tuple(data['gyro_deg_s']), tuple(data['angles_deg'])), count
+
+    def close(self):
+        self.client.close()
+
+
 class Viewer:
-    def __init__(self, root, stream, source_name):
+    def __init__(self, root, stream, source_name, reference_file=DEFAULT_REFERENCE_FILE):
         self.root, self.stream = root, stream
+        self.reference_file = Path(reference_file)
+        self.saved_reference_angles = None
         self.sample = None
         self.reference = IDENTITY
         self.relative = False
@@ -163,8 +261,9 @@ class Viewer:
         self.canvas.bind('<MouseWheel>', lambda event: self.set_zoom(1.08 if event.delta > 0 else 1 / 1.08))
         self.canvas.bind('<Configure>', lambda event: self.draw())
 
-        tk.Label(sidebar, text='传感器原始姿态', bg=PANEL, fg=MUTED,
-                 font=('Noto Sans CJK SC', 11)).pack(anchor='w', pady=(0, 12))
+        self.attitude_title = tk.Label(sidebar, text='传感器原始姿态', bg=PANEL, fg=MUTED,
+                                       font=('Noto Sans CJK SC', 11))
+        self.attitude_title.pack(anchor='w', pady=(0, 12))
         self.angle_labels = []
         for label, subtitle, color in zip(('ROLL', 'PITCH', 'YAW'),
                                           ('横滚 · 绕 X 轴', '俯仰 · 绕 Y 轴', '航向 · 绕 Z 轴'), AXES):
@@ -190,7 +289,8 @@ class Viewer:
 
         controls = tk.Frame(root, bg=BG, padx=22, pady=14)
         controls.pack(fill='x')
-        for text, callback in [('此刻设为参考姿态', self.set_reference),
+        for text, callback in [('设为零点并保存', self.set_reference),
+                               ('使用已存零点', self.restore_reference),
                                ('显示绝对姿态', self.clear_reference), ('重置视角', self.reset_camera)]:
             tk.Button(controls, text=text, command=callback, bg='#21334d', fg=TEXT,
                       activebackground='#324d70', activeforeground=TEXT,
@@ -199,8 +299,23 @@ class Viewer:
         self.mode = tk.Label(controls, text='绝对姿态', bg=BG, fg=MUTED,
                              font=('Noto Sans CJK SC', 10))
         self.mode.pack(side='right')
-        tk.Label(root, text=f'{source_name}   ·   左键拖动视角 / 滚轮缩放   ·   右侧角度始终显示传感器原值',
+        if isinstance(stream, WifiStream):
+            commands = tk.Frame(root, bg=BG, padx=22)
+            commands.pack(fill='x', pady=(0, 8))
+            tk.Label(commands, text='Wi-Fi 指令', bg=BG, fg=MUTED).pack(side='left', padx=(0, 8))
+            self.command_entry = tk.Entry(commands, bg=PANEL, fg=TEXT, insertbackground=TEXT, width=32)
+            self.command_entry.pack(side='left', padx=(0, 8))
+            self.command_entry.bind('<Return>', lambda event: self.send_wifi_command())
+            tk.Button(commands, text='发送', command=self.send_wifi_command).pack(side='left', padx=(0, 8))
+            tk.Button(commands, text='手动停机', command=lambda: self.send_wifi_command('stop'),
+                      bg='#a83540', fg='white').pack(side='left')
+            self.wifi_details = tk.Label(root, text='等待 Wi-Fi 数据', bg=BG, fg=MUTED, anchor='w')
+            self.wifi_details.pack(fill='x', padx=24, pady=(0, 6))
+            self.wifi_event = tk.Label(root, text='', bg=BG, fg=MUTED, anchor='w', wraplength=1100)
+            self.wifi_event.pack(fill='x', padx=24, pady=(0, 6))
+        tk.Label(root, text=f'{source_name}   ·   左键拖动视角 / 滚轮缩放   ·   参考模式下模型、角度和轨迹同步归零',
                  bg=BG, fg=MUTED, font=('Noto Sans CJK SC', 9)).pack(anchor='w', padx=24, pady=(0, 14))
+        self.restore_reference()
         root.after(10, self.update)
 
     def close(self):
@@ -209,20 +324,80 @@ class Viewer:
 
     def set_reference(self):
         if self.sample and time.monotonic() - self.received_at < 1.:
-            # A relative orientation is a matrix composition, not Euler subtraction.
-            self.reference = transpose(rotation(self.sample.angles))
-            self.relative = True
-            self.mode.config(text='相对参考姿态 · 仅改变显示')
-            self.draw()
+            try:
+                save_reference(self.reference_file, self.sample.angles)
+            except (OSError, ValueError) as error:
+                self.mode.config(text='零点保存失败，请检查保存路径', fg=AXES[0])
+                print(f'Cannot save reference {self.reference_file}: {error}', flush=True)
+                return
+            self.saved_reference_angles = tuple(self.sample.angles)
+            self.apply_reference(self.saved_reference_angles, '相对姿态 · 零点已保存')
+        else:
+            self.mode.config(text='等待实时数据后再设置零点', fg='#f8cb72')
+
+    def restore_reference(self):
+        try:
+            angles = load_reference(self.reference_file)
+        except (OSError, ValueError) as error:
+            self.mode.config(text='零点读取失败，请重新设置', fg=AXES[0])
+            print(f'Cannot load reference {self.reference_file}: {error}', flush=True)
+            return
+        if angles is None:
+            self.mode.config(text='尚未保存零点', fg=MUTED)
+            return
+        self.saved_reference_angles = angles
+        self.apply_reference(angles, '相对姿态 · 已加载保存零点')
+
+    def apply_reference(self, angles, message):
+        # A relative orientation is a matrix composition, not Euler subtraction.
+        self.reference = transpose(rotation(angles))
+        self.relative = True
+        self.mode.config(text=message, fg=MUTED)
+        self.refresh_angles()
+        self.reset_history()
+        self.draw()
 
     def clear_reference(self):
         self.reference, self.relative = IDENTITY, False
-        self.mode.config(text='绝对姿态')
+        message = '绝对姿态 · 零点已保留' if self.saved_reference_angles is not None else '绝对姿态'
+        self.mode.config(text=message, fg=MUTED)
+        self.refresh_angles()
+        self.reset_history()
         self.draw()
+
+    def display_rotation(self):
+        return multiply(self.reference, rotation(self.sample.angles)) if self.sample else IDENTITY
+
+    def display_angles(self):
+        if not self.sample:
+            return None
+        return matrix_angles(self.display_rotation()) if self.relative else self.sample.angles
+
+    def refresh_angles(self):
+        self.attitude_title.config(text='相对参考姿态' if self.relative else '传感器原始姿态')
+        angles = self.display_angles()
+        if angles is not None:
+            for label, value in zip(self.angle_labels, angles):
+                label.config(text=f'{value:+8.2f}°')
+
+    def reset_history(self):
+        # A reference change starts a new trace; do not mix two coordinate frames.
+        self.history.clear()
+        angles = self.display_angles()
+        if angles is not None:
+            self.history.append(angles)
 
     def reset_camera(self):
         self.camera_yaw, self.camera_elevation, self.zoom = -55., 28., 1.
         self.draw()
+
+    def send_wifi_command(self, command=None):
+        command = command if command is not None else self.command_entry.get()
+        try:
+            self.stream.client.send_command(command)
+            self.command_entry.delete(0, 'end')
+        except (OSError, ValueError) as error:
+            self.stream.client.last_event = str(error)
 
     def set_zoom(self, scale):
         self.zoom = max(.55, min(1.6, self.zoom * scale))
@@ -244,15 +419,27 @@ class Viewer:
         self.frame_times.append(now)
         try:
             sample, count = self.stream.poll()
+            if isinstance(self.stream, WifiStream):
+                data = self.stream.client.telemetry
+                if data:
+                    mode = data.get('mode', -1)
+                    if mode == -1:
+                        details = '独立陀螺仪采集 · Wi-Fi 100 Hz · 断线继续采集'
+                    else:
+                        details = (f"MCU 模式 {mode}  |  倾角 {data.get('tilt_deg', 0):+.3f}°  |  "
+                                   f"速度 {data.get('speed_turns_s', 0):+.3f} 圈/s  |  "
+                                   f"目标力矩 {data.get('torque_nm', 0):+.4f} Nm  |  "
+                                   f"MCU 零点：{'已保存' if data.get('zero_valid') else '未设置'}")
+                    self.wifi_details.config(text=details)
+                self.wifi_event.config(text=self.stream.client.last_event)
             if sample:
                 self.sample = sample
                 self.received_at = now
                 self.received_count += count
                 self.arrivals.append((now, self.received_count))
-                self.history.append(sample.angles)
+                self.history.append(self.display_angles())
                 self.error = ''
-                for label, value in zip(self.angle_labels, sample.angles):
-                    label.config(text=f'{value:+8.2f}°')
+                self.refresh_angles()
                 for label, values in [(self.gyro_label, sample.gyro), (self.acc_label, sample.acceleration)]:
                     label.config(text='\n'.join(f'{axis}  {value:+8.3f}' for axis, value in zip('XYZ', values)))
                 self.gravity.config(text=f'|a|  {math.sqrt(sum(v*v for v in sample.acceleration)):.3f} g')
@@ -271,7 +458,7 @@ class Viewer:
         elif self.sample:
             self.status.config(text=f'● 数据已停止   {age:.1f} s', fg=AXES[0])
         else:
-            self.status.config(text='● 等待串口数据', fg='#f8cb72')
+            self.status.config(text='● 等待数据', fg='#f8cb72')
         self.draw()
         # Use a deadline so render/parse time does not add to the 10 ms period.
         finished = time.monotonic()
@@ -312,7 +499,7 @@ class Viewer:
             x, y = project(endpoint)
             c.create_text(x, y, text=label, fill=MUTED, font=('Noto Sans CJK SC', 9))
 
-        matrix = multiply(self.reference, rotation(self.sample.angles)) if self.sample else IDENTITY
+        matrix = self.display_rotation()
         faces = []
 
         def box(x0, x1, y0, y1, z0, z1, colors):
@@ -381,21 +568,30 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
     source.add_argument('--log', default=None, help='Follow a live serial-monitor log')
-    source.add_argument('--port', help='Open a serial port directly; close other monitors first')
+    source.add_argument('--port', help='Legacy serial port or auto; close other monitors first')
+    source.add_argument('--wifi', nargs='?', const='192.168.4.1', help='ESP32 Wi-Fi IP (default: 192.168.4.1)')
+    parser.add_argument('--udp-port', type=int, default=3334, help='Wi-Fi UDP port (default: 3334)')
     parser.add_argument('--baud', type=int, default=DEFAULT_BAUD, help='Serial baud rate (default: 460800)')
+    parser.add_argument('--reference-file', type=Path, default=DEFAULT_REFERENCE_FILE,
+                        help='Saved reference pose JSON (default: reference_pose.json next to this script)')
     parser.add_argument('--close-after', type=float, default=0, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    log_path = args.log or '/tmp/jy901p-live-monitor.log'
     root = tk.Tk()
     try:
-        stream = Stream(log_path=log_path if not args.port else None, port=args.port, baud=args.baud)
+        if args.log or args.port:
+            stream = Stream(log_path=args.log, port=args.port, baud=args.baud)
+            source_name = f'{stream.port} · {args.baud} baud' if stream.port else args.log
+        else:
+            address = args.wifi or '192.168.4.1'
+            stream = WifiStream(address, args.udp_port)
+            source_name = f'Wi-Fi UDP · {address}:{args.udp_port}'
     except (OSError, ImportError) as error:
         from tkinter import messagebox
         root.withdraw()
         messagebox.showerror('JY901P 数据源未打开', str(error), parent=root)
         root.destroy()
         return 1
-    viewer = Viewer(root, stream, f'{args.port} · {args.baud} baud' if args.port else log_path)
+    viewer = Viewer(root, stream, source_name, reference_file=args.reference_file)
     if args.close_after:
         root.after(int(args.close_after*1000), viewer.close)
     root.mainloop()

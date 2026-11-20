@@ -18,6 +18,7 @@
 #define JY901P_REG_RATE       0x03U
 #define JY901P_REG_BANDWIDTH  0x1fU
 #define JY901P_REG_GX         0x37U
+#define JY901P_REG_AX         0x34U
 #define JY901P_REG_ROLL       0x3dU
 #define JY901P_REG_YAW        0x3fU
 #define JY901P_REG_KEY        0x69U
@@ -161,15 +162,15 @@ esp_err_t imu_port_read(imu_sample_t *sample)
     /* 失败时绝不把旧数据标记为有效，也不沿用上一次读取的时间戳。 */
     *sample = (imu_sample_t) {0};
     if (!s_ready) return ESP_ERR_INVALID_STATE;
-    /* 一次连续读取 GX/GY/GZ、HX/HY/HZ、Roll/Pitch/Yaw，共 9 个寄存器。
-     * 控制只用 body-X 的 GX 与 Roll；其余轴保留在本次原始缓冲区中。 */
-    uint8_t bytes[(JY901P_REG_YAW - JY901P_REG_GX + 1U) * 2U];
+    /* 同一次 IIC 读取加速度、角速度、磁场、姿态，共 12 个寄存器。
+     * 本地控制仍使用 GX/Roll；完整三轴数据用于 Wi-Fi 3D 显示。 */
+    uint8_t bytes[(JY901P_REG_YAW - JY901P_REG_AX + 1U) * 2U];
     const int64_t started_us = esp_timer_get_time();
-    esp_err_t result = read_registers(JY901P_REG_GX, bytes, sizeof(bytes));
+    esp_err_t result = read_registers(JY901P_REG_AX, bytes, sizeof(bytes));
     if (result != ESP_OK) return result;
     if (esp_timer_get_time() - started_us > BIKE_MAX_SENSOR_AGE_US) return ESP_ERR_TIMEOUT;
-    const int32_t gx = read_i16_le(bytes);
-    const int32_t roll = read_i16_le(bytes + (JY901P_REG_ROLL - JY901P_REG_GX) * 2U);
+    const int32_t gx = read_i16_le(bytes + (JY901P_REG_GX - JY901P_REG_AX) * 2U);
+    const int32_t roll = read_i16_le(bytes + (JY901P_REG_ROLL - JY901P_REG_AX) * 2U);
     *sample = (imu_sample_t) {
         /* 图片公式：角度 raw/32768*180°，角速度 raw/32768*2000°/s。
          * 发布前换成 rad、rad/s；模块须按车体 X前/Y左/Z上安装。 */
@@ -180,6 +181,11 @@ esp_err_t imu_port_read(imu_sample_t *sample)
         .timestamp_us = started_us - BIKE_SENSOR_PERIOD_US,
         .valid = true,
     };
+    for (unsigned i = 0; i < 3; ++i) {
+        sample->acceleration_g[i] = (float)read_i16_le(bytes + i*2U) / 32768.f * 16.f;
+        sample->gyro_deg_s[i] = (float)read_i16_le(bytes + (3U+i)*2U) / 32768.f * 2000.f;
+        sample->angles_deg[i] = (float)read_i16_le(bytes + (9U+i)*2U) / 32768.f * 180.f;
+    }
     return ESP_OK;
 #elif CONFIG_BIKE_MOCK_HARDWARE
     const int64_t now_us = esp_timer_get_time();

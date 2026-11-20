@@ -1,0 +1,12 @@
+menu "Bike Wi-Fi data link"
+    config BIKE_LINK_AP_SSID
+        string "ESP32 hotspot name"
+        default "BalanceBike-ESP32"
+    config BIKE_LINK_AP_PASSWORD
+        string "ESP32 hotspot password (8-63 characters)"
+        default "balance123"
+    config BIKE_LINK_AP_CHANNEL
+        int "Hotspot channel"
+        range 1 11
+        default 6
+endmenu

@@ -89,3 +89,6 @@ Desktop.ini
 
 # Raw hardware captures; keep the small reports as project documentation
 **/test_results/samples.json
+
+# Device-specific visualization zero; keep locally across viewer restarts
+/standalone/jy901p/reference_pose.json

@@ -10,6 +10,9 @@ typedef struct {
     float roll_rate_rad_s;       /* rad/s, gyro mapped into body frame */
     int64_t timestamp_us;        /* esp_timer 时基；JY901P 使用保守的采样时间估计 */
     bool valid;
+    float acceleration_g[3];     /* AX/AY/AZ，供无线可视化使用 */
+    float gyro_deg_s[3];         /* GX/GY/GZ，单位 °/s */
+    float angles_deg[3];         /* Roll/Pitch/Yaw，绝对姿态 */
 } imu_sample_t;
 
 esp_err_t imu_port_init(void);

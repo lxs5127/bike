@@ -124,7 +124,7 @@ esp_err_t i2c_master_transmit(i2c_master_dev_handle_t device, const uint8_t *dat
 esp_err_t i2c_master_transmit_receive(i2c_master_dev_handle_t device,
         const uint8_t *reg, size_t write_size, uint8_t *data, size_t size, int timeout) {
     assert(device && write_size == 1 && timeout >= 10 && timeout <= 20);
-    assert((*reg == 0x37 && size == 18) ||
+    assert((*reg == 0x34 && size == 24) ||
            ((*reg == 0x03 || *reg == 0x1f) && size == 2));
     clock_us += transfer_us;
     if (read_error) return read_error;
@@ -165,6 +165,14 @@ int main(int argc, char **argv) {
         assert(imu_port_read(&sample) == ESP_OK && sample.valid);
         assert(sample.timestamp_us == started - 5000);
         printf("%.9g %.9g\n", (double)sample.roll_rad, (double)sample.roll_rate_rad_s);
+    } else if (!strcmp(argv[1], "full-sample")) {
+        registers[0x34] = 2048; registers[0x35] = (uint16_t)-4096; registers[0x36] = 8192;
+        registers[0x37] = 16384; registers[0x38] = (uint16_t)-16384; registers[0x39] = 0;
+        registers[0x3d] = 16384; registers[0x3e] = (uint16_t)-8192; registers[0x3f] = 4096;
+        assert(imu_port_read(&sample) == ESP_OK && sample.valid);
+        assert(sample.acceleration_g[0] == 1.f && sample.acceleration_g[1] == -2.f && sample.acceleration_g[2] == 4.f);
+        assert(sample.gyro_deg_s[0] == 1000.f && sample.gyro_deg_s[1] == -1000.f && sample.gyro_deg_s[2] == 0.f);
+        assert(sample.angles_deg[0] == 90.f && sample.angles_deg[1] == -45.f && sample.angles_deg[2] == 22.5f);
     } else if (!strcmp(argv[1], "read-failure")) {
         read_error = atoi(argv[2]);
         assert(imu_port_read(&sample) == read_error);
@@ -214,6 +222,9 @@ class JY901PTests(unittest.TestCase):
 
     def test_invalid_input_and_read_before_init(self):
         self.run_case("before-init")
+
+    def test_full_three_axis_telemetry_units(self):
+        self.run_case("full-sample")
 
     def test_failed_init_cleans_resources_and_allows_retry(self):
         for stage in range(1, 7):

@@ -15,7 +15,9 @@ from protocol import State, VALID, DRIVE_READY, MOCK, MOTOR_DISABLED
 
 class IMUSample(ct.Structure):
     _fields_ = [("roll", ct.c_float), ("rate", ct.c_float),
-                ("timestamp", ct.c_int64), ("valid", ct.c_bool)]
+                ("timestamp", ct.c_int64), ("valid", ct.c_bool),
+                ("acceleration_g", ct.c_float*3), ("gyro_deg_s", ct.c_float*3),
+                ("angles_deg", ct.c_float*3)]
 
 
 class MockMotionTests(unittest.TestCase):
