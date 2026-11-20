@@ -11,7 +11,7 @@
 | `standalone/odrive_uart/` | MCU 通过 UART 控制飞轮力矩、驱动轮速度，提供直立 PD 调试入口 | 控制与 Wi-Fi 发布目标 100 Hz | 115200 |
 
 各工程分别编译、烧录。两个独立工程均通过 Wi-Fi 提供实时数据；根目录工程另有 Wi-Fi / UDP 字节协议。
-ODrive 串口工程的接线、MCU 零点保存和命令操作见 [直立调试说明](standalone/odrive_uart/README.md)。
+要在 3D 窗口控制电机，请烧录 `standalone/odrive_uart`。手动设置通过 Wi-Fi 到 ESP32，再由 ESP32 经 UART 写入 ODrive。转速以圈/s 输入，力矩以 N·m 输入，目标会持续生效。接线、烧录和停机操作见 [ODrive 控制工程说明](standalone/odrive_uart/README.md)。
 
 ## JY901P 接线
 

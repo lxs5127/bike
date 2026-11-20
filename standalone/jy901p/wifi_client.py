@@ -96,7 +96,7 @@ class WifiClient:
             if kind == 'sample':
                 if stamp <= self.sample_us:
                     return None
-                for name in ('tilt_deg', 'speed_turns_s', 'torque_nm'):
+                for name in ('tilt_deg', 'speed_turns_s', 'torque_nm', 'wheel_target'):
                     value = data.get(name, 0)
                     if type(value) not in (int, float) or not math.isfinite(value):
                         return None

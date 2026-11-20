@@ -34,8 +34,7 @@ ODrive 端的 RX / TX 物理位置按具体板卡标识确定。
 | `odrive_uart_enable(0)` | 电机 0 配置为力矩控制、直通输入，再请求闭环 |
 | `odrive_uart_enable(1)` | 电机 1 配置为速度控制、直通输入，再请求闭环 |
 | `odrive_uart_set_motor0_torque(nm)` | 电机 0 目标力矩，单位 N·m |
-| `odrive_uart_set_motor1_velocity(turns_s)` | 电机 1 目标速度，单位圈/秒 |
-| `odrive_uart_set_motor1_rpm(rpm)` | 电机 1 目标速度，单位转/分钟，内部除以 60 |
+| `odrive_uart_set_motor1_velocity(turns_s)` | 电机 1 目标速度，单位圈/s |
 | `odrive_uart_set_motor1_rad_s(rad_s)` | 电机 1 目标速度，单位 rad/s，内部除以 2π |
 | `odrive_uart_stop(motor)` | 对指定电机请求 IDLE，并清零目标 |
 | `odrive_uart_stop_all()` | 对两台电机分别发送停机请求 |
@@ -46,7 +45,7 @@ ODrive 端的 RX / TX 物理位置按具体板卡标识确定。
 | `odrive_uart_clear_errors()` | 显式发送 `sc` 清除错误 |
 | `odrive_uart_deinit()` | 尝试停机，释放 UART 和互斥锁 |
 
-速度换算：`1 圈/秒 = 60 rpm = 2π rad/s`。力矩和速度均为电机侧量，组件不进行减速比、飞轮侧量或安装方向换算。
+力矩和速度均为电机侧量。组件直接使用电机轴的力矩（N·m）和转速（圈/s）。
 
 “直接速度”通过 `input_mode=1`（PASSTHROUGH）实现，不使用速度斜坡输入。
 模式值为电机 0 的 `control_mode=1`（TORQUE_CONTROL）和电机 1 的 `control_mode=2`（VELOCITY_CONTROL）。
@@ -65,15 +64,13 @@ ESP_ERROR_CHECK(odrive_uart_enable(ODRIVE_MOTOR1));
 
 // 控制周期中更新目标。这里以零目标示例，实际值由上层应用提供。
 ESP_ERROR_CHECK(odrive_uart_set_motor0_torque(0.0f));
-ESP_ERROR_CHECK(odrive_uart_set_motor1_rpm(0.0f));
+ESP_ERROR_CHECK(odrive_uart_set_motor1_velocity(0.0f));
 
-// 读取电机 1 的反馈：位置为圈数，速度为圈/秒。
+// 读取电机 1 的反馈，位置为圈数，速度为圈/s。
 odrive_uart_feedback_t feedback;
 esp_err_t result = odrive_uart_read_feedback(ODRIVE_MOTOR1, &feedback);
 if (result == ESP_OK && feedback.valid) {
-    float rpm = feedback.velocity_turns_s * 60.0f;
-    // 将 rpm、feedback.position_turns 等交给应用使用。
-    (void)rpm;
+    // 应用直接使用 feedback.velocity_turns_s 和 feedback.position_turns。
 }
 
 // 停止运行或出现异常时，应用应检查停机接口的返回值。
@@ -97,7 +94,7 @@ ODrive 的电流/力矩限制、速度限制、校准参数和独立看门狗由
 现有 `main/ports/odrive_port.*` 仍保留原来的模拟适配流程，新增组件不会在启动时自动使能电机，也不会把轴 1 速度命令混入轴 0 力矩命令。
 独立 JY901P 固件只负责传感器采集，通过 Wi-Fi 向电脑发送三轴数据。
 
-本地控制应用位于 [standalone/odrive_uart](../standalone/odrive_uart/README.md)，提供 MCU 零点持久化、力矩/速度短脉冲、100 Hz 直立 PD 调试及停机命令。它按用户已经设置好 ODrive 的前提工作，不做版本查询或电机校准检测。
+本地控制工程提供 MCU 零点持久化、手动力矩和转速设定、100 Hz 直立 PD 调试及停机命令。使用已配置好的 ODrive 即可连接。[控制工程说明](../standalone/odrive_uart/README.md)
 
 ## 通信与错误处理
 

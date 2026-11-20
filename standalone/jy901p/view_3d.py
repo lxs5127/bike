@@ -52,6 +52,21 @@ def parse_sample(line):
     return Sample(values[:3], values[3:6], values[6:])
 
 
+def build_motor_command(kind, target):
+    """Build a Wi-Fi motor command using the ODrive units."""
+    try:
+        value = float(target)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError('请输入有效的力矩或转速') from None
+    if not math.isfinite(value):
+        raise ValueError('力矩或转速必须是有限数值')
+    if kind == 'torque':
+        return f'torque0 {value:.9g}'
+    if kind == 'speed':
+        return f'speed1 {value:.9g}'
+    raise ValueError('未知电机控制类型')
+
+
 def multiply(a, b):
     return tuple(tuple(sum(a[i][k] * b[k][j] for k in range(3))
                        for j in range(3)) for i in range(3))
@@ -247,9 +262,13 @@ class Viewer:
                                font=('Noto Sans CJK SC', 11))
         self.status.pack(side='right')
 
+        if isinstance(stream, WifiStream):
+            root.geometry('1200x900')
+            self.create_motor_controls(root)
+
         content = tk.Frame(root, bg=BG)
         content.pack(fill='both', expand=True, padx=22)
-        sidebar = tk.Frame(content, bg=PANEL, width=285, padx=18, pady=14)
+        sidebar = tk.Frame(content, bg=PANEL, width=285, padx=18, pady=10)
         sidebar.pack(side='right', fill='y', padx=(16, 0))
         sidebar.pack_propagate(False)
         self.canvas = tk.Canvas(content, bg=PANEL, highlightthickness=0)
@@ -263,29 +282,29 @@ class Viewer:
 
         self.attitude_title = tk.Label(sidebar, text='传感器原始姿态', bg=PANEL, fg=MUTED,
                                        font=('Noto Sans CJK SC', 11))
-        self.attitude_title.pack(anchor='w', pady=(0, 12))
+        self.attitude_title.pack(anchor='w', pady=(0, 6))
         self.angle_labels = []
         for label, subtitle, color in zip(('ROLL', 'PITCH', 'YAW'),
                                           ('横滚 · 绕 X 轴', '俯仰 · 绕 Y 轴', '航向 · 绕 Z 轴'), AXES):
             tk.Label(sidebar, text=f'{label}   {subtitle}', bg=PANEL, fg=color,
                      font=('Noto Sans CJK SC', 10)).pack(anchor='w')
             value = tk.Label(sidebar, text='— °', bg=PANEL, fg=TEXT,
-                             font=('DejaVu Sans Mono', 25, 'bold'))
-            value.pack(anchor='w', pady=(2, 12))
+                             font=('DejaVu Sans Mono', 22, 'bold'))
+            value.pack(anchor='w', pady=(0, 6))
             self.angle_labels.append(value)
         tk.Label(sidebar, text='角速度  °/s', bg=PANEL, fg=MUTED,
-                 font=('Noto Sans CJK SC', 10)).pack(anchor='w', pady=(8, 5))
+                 font=('Noto Sans CJK SC', 10)).pack(anchor='w', pady=(4, 4))
         self.gyro_label = tk.Label(sidebar, text='X —\nY —\nZ —', bg=PANEL, fg=TEXT,
-                                   justify='left', font=('DejaVu Sans Mono', 12))
+                                   justify='left', font=('DejaVu Sans Mono', 11))
         self.gyro_label.pack(anchor='w')
         tk.Label(sidebar, text='加速度  g', bg=PANEL, fg=MUTED,
-                 font=('Noto Sans CJK SC', 10)).pack(anchor='w', pady=(18, 5))
+                 font=('Noto Sans CJK SC', 10)).pack(anchor='w', pady=(8, 4))
         self.acc_label = tk.Label(sidebar, text='X —\nY —\nZ —', bg=PANEL, fg=TEXT,
-                                  justify='left', font=('DejaVu Sans Mono', 12))
+                                  justify='left', font=('DejaVu Sans Mono', 11))
         self.acc_label.pack(anchor='w')
         self.gravity = tk.Label(sidebar, text='|a|  — g', bg=PANEL, fg=MUTED,
                                  font=('DejaVu Sans Mono', 10))
-        self.gravity.pack(anchor='w', pady=9)
+        self.gravity.pack(anchor='w', pady=5)
 
         controls = tk.Frame(root, bg=BG, padx=22, pady=14)
         controls.pack(fill='x')
@@ -311,8 +330,6 @@ class Viewer:
                       bg='#a83540', fg='white').pack(side='left')
             self.wifi_details = tk.Label(root, text='等待 Wi-Fi 数据', bg=BG, fg=MUTED, anchor='w')
             self.wifi_details.pack(fill='x', padx=24, pady=(0, 6))
-            self.wifi_event = tk.Label(root, text='', bg=BG, fg=MUTED, anchor='w', wraplength=1100)
-            self.wifi_event.pack(fill='x', padx=24, pady=(0, 6))
         tk.Label(root, text=f'{source_name}   ·   左键拖动视角 / 滚轮缩放   ·   参考模式下模型、角度和轨迹同步归零',
                  bg=BG, fg=MUTED, font=('Noto Sans CJK SC', 9)).pack(anchor='w', padx=24, pady=(0, 14))
         self.restore_reference()
@@ -321,6 +338,152 @@ class Viewer:
     def close(self):
         self.stream.close()
         self.root.destroy()
+
+    def create_motor_controls(self, root):
+        panel = tk.Frame(root, bg=PANEL, padx=14, pady=10)
+        panel.pack(fill='x', padx=22, pady=(0, 12))
+        for column in (0, 1):
+            panel.grid_columnconfigure(column, weight=1)
+        self.motor_buttons = []
+        for column, kind, title, unit, button_text in (
+                (0, 'torque', '电机 0 · 飞轮力矩', 'N·m', '设置力矩'),
+                (1, 'speed', '电机 1 · 驱动轮转速', '圈/s', '设置转速')):
+            group = tk.Frame(panel, bg=PANEL)
+            group.grid(row=0, column=column, sticky='w', padx=(0, 18))
+            tk.Label(group, text=title, bg=PANEL, fg=TEXT,
+                     font=('Noto Sans CJK SC', 10)).pack(anchor='w', pady=(0, 6))
+            row = tk.Frame(group, bg=PANEL)
+            row.pack(anchor='w')
+            entry = tk.Entry(row, width=11, bg=BG, fg=TEXT, insertbackground=TEXT,
+                             font=('DejaVu Sans Mono', 12))
+            entry.insert(0, '0')
+            entry.pack(side='left')
+            setattr(self, kind+'_entry', entry)
+            tk.Label(row, text=unit, bg=PANEL, fg=MUTED, width=5).pack(side='left', padx=4)
+            button = tk.Button(row, text=button_text,
+                               command=lambda selected=kind: self.send_motor_target(selected),
+                               state='disabled', bg='#21334d', fg=TEXT,
+                               disabledforeground=MUTED, activebackground='#324d70',
+                               activeforeground=TEXT, relief='flat', padx=12, pady=5,
+                               font=('Noto Sans CJK SC', 10))
+            button.pack(side='left')
+            self.motor_buttons.append(button)
+        self.motor_limits_button = tk.Button(panel, text='设置软件限幅', command=self.edit_motor_limits,
+                                            state='disabled', bg='#21334d', fg=TEXT,
+                                            disabledforeground=MUTED, relief='flat')
+        self.motor_limits_button.grid(row=1, column=2, sticky='e', pady=(8, 0))
+        self.motor_hint = tk.Label(panel, text='等待 Wi-Fi 电机控制固件', bg=PANEL, fg=MUTED,
+                                   anchor='w', font=('Noto Sans CJK SC', 9))
+        self.motor_hint.grid(row=1, column=0, columnspan=2, sticky='w', pady=(8, 0))
+        self.wifi_event = tk.Label(panel, text='', bg=PANEL, fg=MUTED, anchor='w',
+                                   justify='left', wraplength=840)
+        self.wifi_event.grid(row=2, column=0, columnspan=3, sticky='w', pady=(4, 0))
+
+    def motor_limits(self):
+        data = self.stream.client.telemetry
+        limits = tuple(data.get(key, 0) for key in ('torque_limit', 'flywheel_limit', 'wheel_limit'))
+        if all(type(value) in (int, float) and math.isfinite(value) and value > 0 for value in limits):
+            return limits
+        return None
+
+    def can_configure_motors(self):
+        client = self.stream.client
+        return (bool(client.token) and time.monotonic()-client.last_received <= .3
+                and client.telemetry.get('mode') == 0)
+
+    def edit_motor_limits(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title('ESP32 软件限幅')
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        fields = []
+        for row, (label, value) in enumerate(zip(
+                ('飞轮力矩上限（N·m）', '平衡模式飞轮转速上限（圈/s）', '驱动轮目标转速上限（圈/s）'),
+                self.motor_limits() or (0, 0, 0))):
+            tk.Label(dialog, text=label).grid(row=row, column=0, sticky='w', padx=12, pady=6)
+            entry = tk.Entry(dialog, width=15)
+            if value:
+                entry.insert(0, f'{value:.9g}')
+            entry.grid(row=row, column=1, padx=12, pady=6)
+            fields.append(entry)
+        feedback = tk.Label(dialog, text='请输入适用于实车的三个上限。', justify='left')
+        feedback.grid(row=3, column=0, columnspan=2, padx=12, pady=6)
+
+        def apply_limits():
+            try:
+                values = tuple(float(entry.get()) for entry in fields)
+                if not all(math.isfinite(value) and value > 0 for value in values):
+                    raise ValueError
+            except ValueError:
+                feedback.config(text='三个上限均须为有限的正数。', fg='red')
+                return
+            try:
+                self.send_motor_limits(*values)
+            except OSError as error:
+                feedback.config(text=str(error), fg='red')
+                return
+            dialog.destroy()
+
+        tk.Button(dialog, text='应用限幅', command=apply_limits).grid(
+            row=4, column=0, columnspan=2, pady=(0, 10))
+        fields[0].focus_set()
+        dialog.grab_set()
+
+    def send_motor_limits(self, torque_nm, flywheel_turns_s, wheel_turns_s):
+        if not self.can_configure_motors():
+            raise OSError('请连接电机控制固件并确认电机已停机。')
+        self.stream.client.send_command(
+            f'limits {torque_nm:.9g} {flywheel_turns_s:.9g} {wheel_turns_s:.9g}')
+
+    def refresh_motor_controls(self):
+        client = self.stream.client
+        mode = client.telemetry.get('mode')
+        connected = bool(client.token) and time.monotonic()-client.last_received <= .3
+        limits = self.motor_limits()
+        can_configure = self.can_configure_motors()
+        available = ()
+        if connected and limits is not None:
+            available = {0: ('torque', 'speed'), 2: ('torque',), 3: ('speed',)}.get(mode, ())
+        if not connected:
+            message = 'Wi-Fi 未连接，等待电机控制数据'
+        elif mode == -1:
+            message = '当前固件仅采集陀螺仪；控制电机需烧录电机控制固件'
+        elif mode == 1:
+            message = '直立控制运行中。切换到手动控制前请先停机。'
+        elif mode in (2, 3):
+            axis = '电机 0 力矩' if mode == 2 else '电机 1 转速'
+            message = f'正在保持{axis}。可更新当前目标，切换电机前请先停机。'
+        elif available:
+            torque, flywheel, wheel = limits
+            message = (f'限幅已生效   飞轮 {torque:.4g} N·m / {flywheel:.4g} 圈/s'
+                       f'   驱动轮 {wheel:.4g} 圈/s')
+        elif can_configure:
+            message = 'ESP32 软件限幅未设置，点击「设置软件限幅」后再启动电机。'
+        else:
+            message = '等待电机控制固件的状态数据'
+        self.motor_hint.config(text=message)
+        self.motor_limits_button.config(state='normal' if can_configure else 'disabled')
+        for kind, button in zip(('torque', 'speed'), self.motor_buttons):
+            button.config(state='normal' if kind in available else 'disabled')
+        return available
+
+    def send_motor_target(self, kind):
+        client = self.stream.client
+        if kind not in self.refresh_motor_controls():
+            client.last_event = self.motor_hint.cget('text')
+            return False
+        try:
+            entry = self.torque_entry if kind == 'torque' else self.speed_entry
+            command = build_motor_command(kind, entry.get())
+            torque, _, wheel = self.motor_limits()
+            limit, unit = (torque, 'N·m') if kind == 'torque' else (wheel, '圈/s')
+            if abs(float(entry.get())) > limit:
+                raise ValueError(f'目标超过已生效的限幅 {limit:.4g} {unit}。')
+            client.send_command(command)
+        except (OSError, ValueError) as error:
+            client.last_event = str(error)
+            return False
+        return True
 
     def set_reference(self):
         if self.sample and time.monotonic() - self.received_at < 1.:
@@ -420,14 +583,20 @@ class Viewer:
         try:
             sample, count = self.stream.poll()
             if isinstance(self.stream, WifiStream):
+                self.refresh_motor_controls()
                 data = self.stream.client.telemetry
                 if data:
                     mode = data.get('mode', -1)
                     if mode == -1:
                         details = '独立陀螺仪采集 · Wi-Fi 100 Hz · 断线继续采集'
                     else:
+                        measured_speed = (
+                            f"{data.get('speed_turns_s', 0):+.3f} 圈/s"
+                            if mode == 1 and data.get('encoder_valid') is True else '—'
+                        )
                         details = (f"MCU 模式 {mode}  |  倾角 {data.get('tilt_deg', 0):+.3f}°  |  "
-                                   f"速度 {data.get('speed_turns_s', 0):+.3f} 圈/s  |  "
+                                   f"编码器 {measured_speed}  |  "
+                                   f"驱动轮目标 {data.get('wheel_target', 0):+.3f} 圈/s  |  "
                                    f"目标力矩 {data.get('torque_nm', 0):+.4f} Nm  |  "
                                    f"MCU 零点：{'已保存' if data.get('zero_valid') else '未设置'}")
                     self.wifi_details.config(text=details)

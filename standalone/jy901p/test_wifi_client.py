@@ -5,7 +5,7 @@ import time
 import unittest
 from unittest.mock import patch
 from wifi_client import WifiClient, valid_sample
-from view_3d import WifiStream
+from view_3d import Viewer, WifiStream, build_motor_command
 
 
 class FakeSocket:
@@ -119,6 +119,118 @@ class WifiClientTests(unittest.TestCase):
         self.assertEqual(sample.angles, (4., 5., 6.))
         self.assertEqual(sample.gyro, (1., 2., 3.))
         self.assertEqual(sample.acceleration, (.1, -.2, 1.))
+
+    def make_motor_viewer(self):
+        class Widget:
+            def __init__(self, text=''):
+                self.values = {'text': text}
+
+            def get(self):
+                return self.values['text']
+
+            def config(self, **values):
+                self.values.update(values)
+
+            def cget(self, key):
+                return self.values[key]
+
+        viewer = Viewer.__new__(Viewer)
+        viewer.stream = WifiStream.__new__(WifiStream)
+        viewer.stream.client = self.client
+        viewer.torque_entry = Widget('-0.25')
+        viewer.speed_entry = Widget('1')
+        viewer.motor_hint = Widget()
+        viewer.motor_limits_button = Widget()
+        viewer.motor_buttons = [Widget(), Widget()]
+        return viewer
+
+    def test_motor_buttons_send_separate_axis_commands_in_odrive_units(self):
+        self.welcome()
+        self.sample(mode=0, torque_limit=.5, flywheel_limit=4, wheel_limit=3)
+        self.client.poll()
+        viewer = self.make_motor_viewer()
+        before = len(self.sock.sent)
+        self.assertTrue(viewer.send_motor_target('torque'))
+        self.assertEqual(len(self.sock.sent), before+1)
+        self.assertTrue(self.sock.sent[-1].endswith(b' torque0 -0.25'))
+        self.assertTrue(viewer.send_motor_target('speed'))
+        self.assertEqual(len(self.sock.sent), before+2)
+        self.assertTrue(self.sock.sent[-1].endswith(b' speed1 1'))
+        viewer.speed_entry.values['text'] = '-1'
+        self.assertTrue(viewer.send_motor_target('speed'))
+        self.assertTrue(self.sock.sent[-1].endswith(b' speed1 -1'))
+
+    def test_motor_buttons_do_not_send_for_imu_only_balancing_or_lost_link(self):
+        self.welcome()
+        viewer = self.make_motor_viewer()
+        for mode in (-1, 1, None):
+            with self.subTest(mode=mode):
+                self.client.telemetry = {'mode': mode}
+                before = len(self.sock.sent)
+                self.assertFalse(viewer.send_motor_target('torque'))
+                self.assertFalse(viewer.send_motor_target('speed'))
+                self.assertEqual(len(self.sock.sent), before)
+                self.assertTrue(all(button.cget('state') == 'disabled' for button in viewer.motor_buttons))
+        self.client.telemetry = {'mode': 0}
+        self.client.last_received = time.monotonic()-1
+        before = len(self.sock.sent)
+        self.assertFalse(viewer.send_motor_target('torque'))
+        self.assertEqual(len(self.sock.sent), before)
+
+    def test_only_running_motor_target_can_be_updated(self):
+        self.welcome()
+        self.sample(mode=3, torque_limit=.5, flywheel_limit=4, wheel_limit=3)
+        self.client.poll()
+        viewer = self.make_motor_viewer()
+        before = len(self.sock.sent)
+        self.assertFalse(viewer.send_motor_target('torque'))
+        self.assertEqual(len(self.sock.sent), before)
+        self.assertTrue(viewer.send_motor_target('speed'))
+        self.assertTrue(self.sock.sent[-1].endswith(b' speed1 1'))
+        self.sample(1020000, mode=2, torque_limit=.5, flywheel_limit=4, wheel_limit=3)
+        self.client.poll()
+        self.assertFalse(viewer.send_motor_target('speed'))
+        self.assertTrue(viewer.send_motor_target('torque'))
+        self.assertTrue(self.sock.sent[-1].endswith(b' torque0 -0.25'))
+
+    def test_motor_input_rejects_invalid_value_without_send(self):
+        self.welcome()
+        self.client.telemetry = {'mode': 0, 'torque_limit': .5, 'flywheel_limit': 4, 'wheel_limit': 3}
+        viewer = self.make_motor_viewer()
+        for target in ('nan', 'inf', '1e999', 'oops'):
+            with self.subTest(target=target):
+                viewer.torque_entry.values['text'] = target
+                before = len(self.sock.sent)
+                self.assertFalse(viewer.send_motor_target('torque'))
+                self.assertEqual(len(self.sock.sent), before)
+
+    def test_motor_controls_wait_for_limit_telemetry_after_configuration(self):
+        self.welcome()
+        self.sample(mode=0, torque_limit=0, flywheel_limit=0, wheel_limit=0)
+        self.client.poll()
+        viewer = self.make_motor_viewer()
+        before = len(self.sock.sent)
+        self.assertFalse(viewer.send_motor_target('speed'))
+        self.assertEqual(len(self.sock.sent), before)
+        self.assertEqual(viewer.motor_limits_button.cget('state'), 'normal')
+        viewer.send_motor_limits(.5, 4, 3)
+        self.assertTrue(self.sock.sent[-1].endswith(b' limits 0.5 4 3'))
+        self.assertFalse(viewer.refresh_motor_controls())
+        self.sample(1020000, mode=0, torque_limit=.5, flywheel_limit=4, wheel_limit=3)
+        self.client.poll()
+        self.assertTrue(viewer.refresh_motor_controls())
+        self.assertIn('4 圈/s', viewer.motor_hint.cget('text'))
+        viewer.speed_entry.values['text'] = '3.1'
+        before = len(self.sock.sent)
+        self.assertFalse(viewer.send_motor_target('speed'))
+        self.assertEqual(len(self.sock.sent), before)
+        self.assertIn('3 圈/s', self.client.last_event)
+
+    def test_motor_command_accepts_zero_targets(self):
+        self.assertEqual(build_motor_command('torque', '0'), 'torque0 0')
+        self.assertEqual(build_motor_command('speed', '0'), 'speed1 0')
+        with self.assertRaises(ValueError):
+            build_motor_command('unknown', '1')
 
 
 if __name__ == '__main__':

@@ -3,7 +3,6 @@
  * 单一任务拥有 IMU、UART、NVS；Wi-Fi 通过单槽队列发布最新请求；断线不改变本地控制。
  */
 #include <errno.h>
-#include <inttypes.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdatomic.h>
@@ -33,12 +32,12 @@ static const char *TAG = "uart_balance";
 typedef enum { CMD_ZERO, CMD_LIMITS, CMD_GAINS, CMD_BALANCE, CMD_TORQUE,
                CMD_SPEED, CMD_STATUS, CMD_STREAM, CMD_RECONNECT } command_kind_t;
 typedef struct { command_kind_t kind; float a, b, c; int direction; unsigned ms; } command_t;
-typedef enum { STOPPED, BALANCING, TORQUE_PULSE, SPEED_PULSE } app_mode_t;
+typedef enum { STOPPED, BALANCING, MANUAL_TORQUE, MANUAL_SPEED } app_mode_t;
 static QueueHandle_t s_commands;
 static atomic_bool s_stop_requested;
 static balance_parameters_t s_parameters;
-static float s_wheel_limit, s_zero, s_last_torque, s_pulse_target;
-static bool s_zero_valid, s_stream = true;
+static float s_wheel_limit, s_zero, s_last_torque, s_wheel_target;
+static bool s_zero_valid, s_stream = true, s_manual_target_pending;
 static app_mode_t s_mode = STOPPED;
 static balance_input_t s_input;
 static imu_sample_t s_imu;
@@ -53,7 +52,10 @@ static void halt(const char *reason)
 {
     s_mode = STOPPED;
     s_last_torque = 0.f;
-    s_pulse_target = 0.f;
+    s_wheel_target = 0.f;
+    s_motion_until = 0;
+    s_manual_target_pending = false;
+    s_input.encoder_valid = false;
     esp_err_t result = odrive_uart_stop_all();
     wifi_link_event("STOP reason=%s stop_tx=%s\n", reason, esp_err_to_name(result));
 }
@@ -136,11 +138,19 @@ static int command_dispatch(int argc, char **argv)
                float_argument(argv[1], &command.a) && float_argument(argv[2], &command.b) &&
                (!strcmp(argv[3], "1") || !strcmp(argv[3], "-1")) && command.a > 0 && command.b >= 0) {
         command.kind = CMD_GAINS; command.direction = atoi(argv[3]);
-    } else if ((!strcmp(name, "torque0") || !strcmp(name, "speed1")) && argc == 3 &&
-               float_argument(argv[1], &command.a) && float_argument(argv[2], &command.b) &&
-               command.b >= 100 && command.b <= 2000 && floorf(command.b) == command.b) {
+    } else if ((!strcmp(name, "torque0") || !strcmp(name, "speed1")) &&
+               (argc == 2 || argc == 3) && float_argument(argv[1], &command.a)) {
         command.kind = !strcmp(name, "torque0") ? CMD_TORQUE : CMD_SPEED;
-        command.ms = (unsigned)command.b;
+        /* A duration is optional for compatibility with older clients. */
+        if (argc == 3) {
+            float duration;
+            if (!float_argument(argv[2], &duration) ||
+                duration < 100 || duration > 2000 || floorf(duration) != duration) {
+                wifi_link_event("Optional duration must be an integer from 100 to 2000 ms.");
+                return 1;
+            }
+            command.ms = (unsigned)duration;
+        }
     } else {
         wifi_link_event("%s","Invalid command/arguments; see the Wi-Fi command table in README."); return 1;
     }
@@ -149,11 +159,11 @@ static int command_dispatch(int argc, char **argv)
     return 0;
 }
 
-static esp_err_t update_encoder(unsigned motor)
+static esp_err_t update_flywheel_encoder(void)
 {
     float speed;
     int64_t timestamp;
-    esp_err_t result = odrive_uart_read_velocity(motor, &speed, &timestamp);
+    esp_err_t result = odrive_uart_read_velocity(ODRIVE_MOTOR0, &speed, &timestamp);
     s_input.encoder_valid = result == ESP_OK;
     if (result == ESP_OK) { s_input.flywheel_turns_s = speed; s_input.encoder_us = timestamp; }
     return result;
@@ -166,7 +176,7 @@ static void print_status(void)
         .encoder_valid=s_input.encoder_valid,
         .tilt_deg=s_zero_valid ? angle_error()*RAD_TO_DEG : 0.f,
         .speed_turns_s=s_input.flywheel_turns_s, .torque_nm=s_last_torque,
-        .wheel_target=s_mode == SPEED_PULSE ? s_pulse_target : 0.f,
+        .wheel_target=s_wheel_target,
         .kp=s_parameters.kp_nm_rad, .kd=s_parameters.kd_nm_rad_s,
         .direction=s_parameters.torque_direction,
         .torque_limit=s_parameters.torque_limit_nm,
@@ -176,37 +186,56 @@ static void print_status(void)
     wifi_link_publish(&status);
 }
 
-static void start_motion(const command_t *command)
+static void halt_encoder_error(esp_err_t result)
 {
-    if (s_mode != STOPPED) { wifi_link_event("%s","Send stop before starting a new mode."); return; }
+    char reason[96];
+    snprintf(reason, sizeof(reason), "ODrive axis0 encoder UART read failed: %s",
+             esp_err_to_name(result));
+    halt(reason);
+}
+
+static void apply_motion_command(const command_t *command)
+{
+    unsigned motor = command->kind == CMD_SPEED ? 1U : 0U;
+    app_mode_t next_mode = command->kind == CMD_BALANCE ? BALANCING :
+                          (motor == 0 ? MANUAL_TORQUE : MANUAL_SPEED);
+    bool starting = s_mode == STOPPED;
+    if (!starting && (s_mode != next_mode || next_mode == BALANCING)) {
+        wifi_link_event("Send stop before switching control modes.");
+        return;
+    }
     if (s_parameters.torque_limit_nm <= 0 || s_parameters.flywheel_speed_limit_turns_s <= 0 || s_wheel_limit <= 0) {
         wifi_link_event("%s","Set real motor limits first: limits <Nm> <flywheel_turns/s> <wheel_turns/s>"); return;
     }
-    unsigned motor = command->kind == CMD_SPEED ? 1U : 0U;
     if (command->kind == CMD_TORQUE && fabsf(command->a) > s_parameters.torque_limit_nm) {
         wifi_link_event("%s","Torque exceeds configured limit."); return;
     }
     if (command->kind == CMD_SPEED && fabsf(command->a) > s_wheel_limit) {
         wifi_link_event("%s","Wheel speed exceeds configured limit."); return;
     }
-    esp_err_t result = update_encoder(motor);  /* Actual speed feedback, not a calibration/version check. */
-    if (result != ESP_OK) { halt("encoder UART read failed"); return; }
-    if (command->kind == CMD_BALANCE) {
-        float candidate;
-        balance_result_t checked = balance_compute(&s_parameters, &s_input, s_zero_valid,
-                                                   s_zero, esp_timer_get_time(), &candidate);
-        if (checked != LOCAL_BALANCE_OK) { wifi_link_event("Balance not started: state=%d\n", (int)checked); return; }
+    if (starting) {
+        s_input.encoder_valid = false;
+        if (next_mode == BALANCING) {
+            esp_err_t result = update_flywheel_encoder();
+            if (result != ESP_OK) { halt_encoder_error(result); return; }
+            float candidate;
+            balance_result_t checked = balance_compute(&s_parameters, &s_input, s_zero_valid,
+                                                       s_zero, esp_timer_get_time(), &candidate);
+            if (checked != LOCAL_BALANCE_OK) { wifi_link_event("Balance not started: state=%d\n", (int)checked); return; }
+            s_next_feedback = esp_timer_get_time() + 50000;
+        }
+        esp_err_t result = odrive_uart_enable(motor);
+        if (result != ESP_OK) { halt("enable transmission failed"); return; }
     }
-    float speed_limit = motor == 0 ? s_parameters.flywheel_speed_limit_turns_s : s_wheel_limit;
-    if (fabsf(s_input.flywheel_turns_s) >= speed_limit) { halt("motor overspeed"); return; }
-    result = odrive_uart_enable(motor);
-    if (result != ESP_OK) { halt("enable transmission failed"); return; }
-    s_mode = command->kind == CMD_BALANCE ? BALANCING : (motor == 0 ? TORQUE_PULSE : SPEED_PULSE);
-    s_motion_until = esp_timer_get_time() + (int64_t)command->ms*1000;
-    s_pulse_target = command->a;
-    s_last_torque = s_mode == TORQUE_PULSE ? command->a : 0.f;
-    s_next_feedback = esp_timer_get_time() + 50000;
-    wifi_link_event("MODE=%d axis=%u; explicit start accepted\n", (int)s_mode, motor);
+    s_mode = next_mode;
+    s_motion_until = command->ms ? esp_timer_get_time() + (int64_t)command->ms*1000 : 0;
+    s_wheel_target = s_mode == MANUAL_SPEED ? command->a : 0.f;
+    s_last_torque = s_mode == MANUAL_TORQUE ? command->a : 0.f;
+    if (s_mode == BALANCING) {
+        wifi_link_event("Balance mode started.");
+    } else {
+        s_manual_target_pending = true;
+    }
 }
 
 static void handle_command(const command_t *command)
@@ -234,7 +263,7 @@ static void handle_command(const command_t *command)
         esp_err_t closed = odrive_uart_deinit();
         esp_err_t opened = odrive_uart_init();
         wifi_link_event("UART reconnect: previous_stop=%s open=%s\n", esp_err_to_name(closed), esp_err_to_name(opened));
-    } else start_motion(command);
+    } else apply_motion_command(command);
 }
 
 static void update_imu(void)
@@ -275,29 +304,36 @@ static void control_task(void *arg)
         if (s_mode != STOPPED) {
             int64_t now = esp_timer_get_time();
             if (!s_input.imu_valid || now-s_input.imu_us > 30000 || s_input.imu_us > now) halt("IMU invalid/stale");
-            if (s_mode != STOPPED && now >= s_next_feedback) {
-                unsigned motor = s_mode == SPEED_PULSE ? 1U : 0U;
-                if (update_encoder(motor) != ESP_OK) halt("encoder UART read failed");
+            /* Manual targets use writes only. Balancing is the sole feedback consumer. */
+            if (s_mode == BALANCING && now >= s_next_feedback) {
+                esp_err_t result = update_flywheel_encoder();
+                if (result != ESP_OK) halt_encoder_error(result);
                 s_next_feedback = esp_timer_get_time() + 50000;
             }
             now = esp_timer_get_time();
             if (s_mode == BALANCING) {
                 balance_result_t checked = balance_compute(&s_parameters, &s_input, s_zero_valid, s_zero, now, &s_last_torque);
                 if (checked != LOCAL_BALANCE_OK) { wifi_link_event("Balance fault=%d\n", (int)checked); halt("balance guard"); }
-            } else if (s_mode != STOPPED) {
-                float limit = s_mode == SPEED_PULSE ? s_wheel_limit : s_parameters.flywheel_speed_limit_turns_s;
-                if (now >= s_motion_until) halt("pulse duration complete");
-                else if (!s_input.encoder_valid || now-s_input.encoder_us > 100000 ||
-                         fabsf(s_input.flywheel_turns_s) >= limit) halt("speed feedback/limit");
+            } else if (s_mode != STOPPED && s_motion_until > 0 && now >= s_motion_until) {
+                halt("pulse duration complete");
             }
             if (s_mode != STOPPED && esp_timer_get_time()-started > 20000) halt("control overrun");
             if (atomic_exchange(&s_stop_requested, false)) {
                 xQueueReset(s_commands); halt("operator");
             }
             if (s_mode != STOPPED) {
-                esp_err_t result = s_mode == SPEED_PULSE ? odrive_uart_set_motor1_velocity(s_pulse_target) :
+                esp_err_t result = s_mode == MANUAL_SPEED ? odrive_uart_set_motor1_velocity(s_wheel_target) :
                                                           odrive_uart_set_motor0_torque(s_last_torque);
-                if (result != ESP_OK) halt("command UART transmission failed");
+                if (result != ESP_OK) {
+                    halt("command UART transmission failed");
+                } else if (s_manual_target_pending) {
+                    s_manual_target_pending = false;
+                    bool speed_mode = s_mode == MANUAL_SPEED;
+                    wifi_link_event("UART TX complete: %s %.6g %s",
+                                    speed_mode ? "axis1 speed" : "axis0 torque",
+                                    (double)(speed_mode ? s_wheel_target : s_last_torque),
+                                    speed_mode ? "turn/s" : "Nm");
+                }
             }
         }
         if (s_stream) print_status();  /* Latest snapshot only; Wi-Fi task sends at 100 Hz. */
