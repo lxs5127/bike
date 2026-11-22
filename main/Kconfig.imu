@@ -1,0 +1,39 @@
+menu "JY901P IMU"
+    config BIKE_IMU_JY901P
+        bool "Use real JY901P IMU over I2C"
+        default y
+        help
+            Read JY901P roll and body-X angular rate over I2C, independently
+            of the ODrive mock option. Mount sensor X forward, Y left, Z up.
+            Startup fails if the sensor is missing or configuration fails.
+
+    if BIKE_IMU_JY901P
+        config BIKE_IMU_SDA_GPIO
+            int "JY901P SDA GPIO"
+            range 0 33
+            default 21
+
+        config BIKE_IMU_SCL_GPIO
+            int "JY901P SCL GPIO"
+            range 0 33
+            default 22
+
+        config BIKE_IMU_I2C_ADDRESS
+            hex "JY901P 7-bit I2C address (not shifted)"
+            range 0x08 0x77
+            default 0x50
+
+        config BIKE_IMU_I2C_HZ
+            int "JY901P I2C clock (Hz)"
+            range 100000 400000
+            default 100000
+
+        config BIKE_IMU_BANDWIDTH
+            int "JY901P bandwidth code (0=256, 1=184, 2=94, 3=44, 4=21, 5=10, 6=5 Hz)"
+            range 0 6
+            default 2
+            help
+                Vendor SDK bandwidth enumeration. Nominal bandwidth names
+                can vary with sensor firmware. Default is code 2 (94 Hz).
+    endif
+endmenu

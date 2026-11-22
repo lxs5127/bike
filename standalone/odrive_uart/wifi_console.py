@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Receive ESP32 data and send commands over Wi-Fi, without opening a serial port."""
+"""通过 Wi-Fi 读取 ESP32 状态并发送控制指令。"""
 import argparse
 from pathlib import Path
 import queue
@@ -20,6 +20,7 @@ def main():
     pending = queue.Queue()
 
     def read_input():
+        # 终端输入会阻塞。另用线程等待输入，由主循环统一处理 UDP。
         for line in sys.stdin:
             pending.put(line.strip())
 
@@ -31,12 +32,13 @@ def main():
     try:
         while True:
             sample, _ = client.poll()
+            # 持续收包，终端按较低频率打印，便于输入命令。
             if sample and time.monotonic() >= next_print:
                 roll, pitch, yaw = sample['angles_deg']
                 print(f'Roll={roll:+.3f} Pitch={pitch:+.3f} Yaw={yaw:+.3f} | '
                       f"tilt={sample['tilt_deg']:+.3f}deg mode={sample['mode']} "
                       f"speed={sample['speed_turns_s']:+.3f}turn/s torque={sample['torque_nm']:+.4f}Nm", flush=True)
-                next_print = time.monotonic()+.1
+                next_print = time.monotonic() + .1
             if client.last_event != last_event:
                 print(client.last_event, flush=True)
                 last_event = client.last_event

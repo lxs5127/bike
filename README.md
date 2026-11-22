@@ -1,133 +1,44 @@
-# ESP32 平衡自行车硬件接口与 JY901P 姿态显示
+# ESP32 平衡自行车
 
-基于 ESP-IDF v5.4.4，适用于普通 ESP32。包含 JY901P 的 I²C 数据读取、100 Hz Wi-Fi 数据输出、桌面 3D 姿态查看器，以及 Wi-Fi / UDP 通信与硬件接口。
+根目录固件通过 I²C 读取 JY901P，通过 UART2 控制 ODrive，并通过 Wi-Fi 向电脑发送姿态与控制状态。控制与状态发布的目标频率都是 100 Hz。
 
-## 工程组成
+## 编译、烧录和查看
 
-| 工程 | 主要功能 | 数据频率 | USB 启动诊断波特率 |
-|---|---|---|---|
-| 根目录工程 | 传感器采集、Wi-Fi / UDP 通信、硬件状态检查 | 采集目标 200 Hz，状态上报约 60 Hz | 115200 |
-| `standalone/jy901p/` | 独立 JY901P 读取、Wi-Fi 数据和 3D 姿态查看 | 读取与 Wi-Fi 发布目标 100 Hz | 460800 |
-| `standalone/odrive_uart/` | MCU 通过 UART 控制飞轮力矩、驱动轮速度，提供直立 PD 调试入口 | 控制与 Wi-Fi 发布目标 100 Hz | 115200 |
+1. 用 ESP-IDF v5.4.4 打开仓库根目录。激活环境后，从根目录执行 `idf.py -p /dev/ttyUSB0 build flash monitor`，串口按实际设备修改。
+2. 启动日志应显示工程名 `balance_bike` 和应用标签 `uart_balance`。ESP32 上电时先向 ODrive 发送两轴 IDLE 和零目标。
+3. 电脑连接热点 `BalanceBike-ESP32`（密码 `balance123`），运行 `python3 standalone/jy901p/view_3d.py`。查看器默认连接 `192.168.4.1:3334`。
 
-各工程分别编译、烧录。两个独立工程均通过 Wi-Fi 提供实时数据；根目录工程另有 Wi-Fi / UDP 字节协议。
-要在 3D 窗口控制电机，请烧录 `standalone/odrive_uart`。手动设置通过 Wi-Fi 到 ESP32，再由 ESP32 经 UART 写入 ODrive。转速以圈/s 输入，力矩以 N·m 输入，目标会持续生效。接线、烧录和停机操作见 [ODrive 控制工程说明](standalone/odrive_uart/README.md)。
+保留旧 `sdkconfig` 时，检查 `menuconfig → Component config → FreeRTOS → Kernel` 中的 `configTICK_RATE_HZ` 是否为 1000。
 
-## JY901P 接线
+## 接线
 
-| JY901P | ESP32 |
+| 外设 | ESP32 |
 |---|---|
-| SDA | GPIO21 |
-| SCL | GPIO22 |
-| VCC | 3.3 V，按模块供电规格接入 |
-| GND | GND，共地 |
+| JY901P SDA、SCL | GPIO21、GPIO22 |
+| JY901P VCC | 按模块规格接 3.3 V |
+| ODrive UART RX、TX | GPIO25（TX）、GPIO26（RX） |
+| 两个外设 GND | ESP32 GND |
 
-SDA、SCL 各用约 4.7 kΩ 电阻上拉到 3.3 V；模块已有适当上拉时无需重复添加。
-默认使用 I2C0，总线速率 100 kHz，7 位设备地址为 `0x50`。地址无需左移为 `0xA0` 或 `0xA1`。
+JY901P 默认地址为 `0x50`，I²C 为 100 kHz。按模块需要给 SDA、SCL 加 3.3 V 上拉。ODrive 使用 3.3 V UART、115200、8N1。
 
-独立模块的引脚和运行参数集中在 [jy901p.c](standalone/jy901p/main/jy901p.c) 文件顶部。
-读取三轴加速度、三轴角速度、Roll / Pitch / Yaw 姿态角及磁场原始计数，通过 Wi-Fi 发送三轴加速度、角速度和姿态角。
+## 控制
 
-| 数据 | 换算 | 单位 |
-|---|---|---|
-| 加速度 | `raw / 32768 × 16` | g |
-| 角速度 | `raw / 32768 × 2000` | °/s |
-| 姿态角 | `raw / 32768 × 180` | ° |
+- 电机 0 是飞轮，设定力矩（N·m）。电机 1 是驱动轮，设定转速（圈/s）。先按实车设置软件限幅，再在查看器中选一个电机操作。
+- 切换控制模式前先点「手动停机」。**关闭查看器或 Wi-Fi 断线后，ESP32 会继续本地控制。**
+- 直立调试依次设置限幅、车体零点和 PD 增益，再显式启动 `balance`。步骤与停机条件见 [控制工程说明](standalone/odrive_uart/README.md)。
+- 飞轮最大转速、最大力矩和静态恢复角度见 [实车记录](standalone/odrive_uart/README.md#实车记录)。
 
-寄存器数据按低字节在前的 16 位有符号数解析。独立模块配置输出率为 100 Hz、带宽代码为 `2`（厂家 SDK 标称 94 Hz），写入后回读确认。
-初始化不会自动执行校准或 Z 轴归零；按需要使用厂家工具校准。
+## 工程与说明
 
-## 独立模块构建与烧录
-
-先激活 ESP-IDF v5.4.4 环境，再从仓库根目录运行：
-
-```bash
-cd standalone/jy901p
-idf.py build
-idf.py -p /dev/ttyUSB0 flash
-```
-
-按实际设备修改 `/dev/ttyUSB0`，USB 只用于烧录及启动诊断。新版传感器数据通过 Wi-Fi UDP 发送。
-
-## 实时 3D 查看
-
-电脑端使用 Python 3 和 Tkinter。先连接 ESP32 热点 `BalanceBike-ESP32`（密码 `balance123`），再从仓库根目录运行：
-
-```bash
-cd standalone/jy901p
-python3 view_3d.py
-```
-
-- 模型跟随模块朝向旋转，红色端表示模块 +X 方向。
-- 默认 Wi-Fi 接收 `192.168.4.1:3334` 的数据，不打开串口；可用 `--wifi` 指定 IP。
-- Wi-Fi 断线或关闭窗口不停止本地采集及已启动的控制；重连恢复接收最新数据。
-- 左键拖动调整观察视角，滚轮缩放。
-- “设为零点并保存”将当前朝向作为显示基准，模型、右侧角度和轨迹同步归零，重开窗口自动加载；“显示绝对姿态”恢复原始朝向，“使用已存零点”切回保存的参考。
-- 右侧实时显示角度、角速度和加速度；参考姿态操作只改变显示，不修改传感器参数。
-- 右上角显示实际接收频率和软件绘制频率。数据目标为 100 Hz，绘制目标为 100 fps；屏幕实际呈现帧率取决于显示器刷新率。
-
-完整说明见 [3D 查看器使用说明](standalone/jy901p/VIEW_3D.md)。
-
-旧版串口固件实板已验证约 100 Hz 的 ESP32 读取与输出；本次 Wi-Fi 版本已[实板验证热点可见](standalone/jy901p/test_results/wifi/report.md)，尚未实测无线接收频率。历史结果见 [100 Hz 测试报告](standalone/jy901p/test_results/100hz/report.md)。
-该测试不代表模块内部采样时序或绝对测量精度已通过验证；先前记录到的 Z 轴角速度瞬时尖峰仍需进一步确认。
-
-查看器检查命令：
-
-```bash
-python3 -m unittest discover -s standalone/jy901p -p 'test_view_3d.py' -v
-```
-
-## 根目录工程
-
-从仓库根目录构建、烧录并查看日志：
-
-```bash
-idf.py build
-idf.py -p /dev/ttyUSB0 flash monitor
-```
-
-当前默认读取真实 JY901P；应用中的飞轮反馈仍为模拟，电机输出关闭。
-独立的 ODrive UART 控制组件已封装，支持电机 0 力矩控制、电机 1 直接速度控制。
-接线、使能、停机和调用方法见 [ODrive 串口控制接口](docs/odrive_uart.md)。
-关闭 `Use real JY901P IMU over I2C` 可使用模拟传感器输入。
-根目录工程的 JY901P 引脚、地址和带宽可以在 `menuconfig → Balance bike framework` 中配置。
-
-Wi-Fi 默认配置：
-
-| 项目 | 默认值 |
+| 位置 | 用途 |
 |---|---|
-| 热点名称 | `BalanceBike-ESP32` |
-| 热点密码 | `balance123` |
-| ESP32 IP | `192.168.4.1` |
-| UDP 端口 | `3333` |
+| 根目录 | 整车联调入口，默认使用真实 JY901P 和 ODrive |
+| `standalone/jy901p/` | 独立传感器固件和 [3D 查看器](standalone/jy901p/VIEW_3D.md) |
+| `standalone/odrive_uart/` | 复用根工程控制代码的独立固件，附 Wi-Fi 文本控制台 |
+| `main/control/` | 状态切换、零点与指令执行见 [uart_balance_app.c](main/control/uart_balance_app.c)，PD 计算和保护判断见 [balance_loop.c](main/control/balance_loop.c) |
+| `components/` | Wi-Fi 数据链路及 [ODrive UART 接口](docs/odrive_uart.md) |
+| `tests/`、`docs/` | 主机测试、协议说明与联调记录 |
 
-ESP32 提供本地热点，不提供互联网。Wi-Fi 初始化、UDP 收发及端点登记位于 `main/ports/pc_link_port.c`。
-字节协议与校验说明见 [通信协议](docs/pc_link_protocol.md)，无线延迟测试记录见 [Wi-Fi 延迟分析](docs/wifi_latency_diagnosis.md)。
+根工程的 `menuconfig → Balance bike framework` 保留独立 Wi-Fi 诊断和 [旧版电脑链路测试](docs/pc_link_protocol.md)，后者使用 UDP 3333，电机输出关闭。两项均关闭时运行默认控制固件。
 
-启用 `Run isolated Wi-Fi diagnostic instead of bike application` 后，固件先打印 10 秒无射频心跳，再启动最小热点。
-该模式用于诊断供电、射频启动和热点连接；恢复普通运行前取消该选项并重新烧录。
-
-## 主要文件
-
-```text
-main/bike_app.c                    任务调度、状态采集、通信和本地检查
-main/app_config.h                  周期、端口与超时配置
-main/ports/imu_port.*              JY901P 接口与模拟输入
-main/ports/odrive_port.*           ODrive 接口与模拟反馈
-components/odrive_uart/           ODrive UART2 驱动与双轴控制接口
-components/bike_wifi/             独立固件的 Wi-Fi UDP 收发组件
-main/ports/pc_link_port.*          ESP32 热点与 UDP 通信
-main/link/                        协议、端点登记和链路检查
-host/protocol.py                  电脑端字节协议
-host/udp_link.py                  电脑端 UDP 通信
-standalone/jy901p/main/jy901p.c    独立传感器示例
-standalone/jy901p/view_3d.py       桌面 3D 姿态查看器
-standalone/odrive_uart/           独立串口电机控制与直立调试工程
-tests/                            主机验证脚本
-docs/                             协议说明与测试记录
-```
-
-## 仓库文件
-
-保留源码、构建配置、`sdkconfig.defaults`、测试和文档。
-`build/`、本地生成的 `sdkconfig`、日志、缓存和原始采集数据已通过 `.gitignore` 排除。
+主机测试和编译用于核对控制逻辑与接口。根目录整合版的实板联调仍需烧录后验证。

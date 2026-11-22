@@ -1,5 +1,7 @@
 # Wi-Fi / UDP protocol v1
 
+This format is for the legacy PC link test. Enable `Run legacy PC link test instead of ODrive control` in the root firmware's `Balance bike framework` menu before running a UDP 3333 client.
+
 Little endian. Floats are IEEE754 float32. No struct padding on the wire.
 ESP32 SoftAP `BalanceBike-ESP32`, IPv4 192.168.4.1, UDP port 3333.
 Each UDP datagram contains exactly one full packet; fragments/concatenation are

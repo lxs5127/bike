@@ -27,6 +27,14 @@ AXES = ('#ff727b', '#58dfad', '#6ca9ff')
 DEFAULT_BAUD = 460800
 REFRESH_HZ = 100
 DEFAULT_REFERENCE_FILE = Path(__file__).resolve().with_name('reference_pose.json')
+
+# 遥测中的 mode 取值，与 ESP32 控制应用及独立陀螺仪固件对应。
+MODE_IMU_ONLY = -1
+MODE_STOPPED = 0
+MODE_BALANCING = 1
+MODE_MANUAL_TORQUE = 2
+MODE_MANUAL_SPEED = 3
+
 FLOAT = r'([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)'
 PATTERN = re.compile(
     r'acc\[g\]\s+X=' + FLOAT + r'\s+Y=' + FLOAT + r'\s+Z=' + FLOAT
@@ -37,6 +45,8 @@ IDENTITY = ((1., 0., 0.), (0., 1., 0.), (0., 0., 1.))
 
 @dataclass
 class Sample:
+    """统一数据源的单位，加速度为 g，角速度为 °/s，姿态为 °。"""
+
     acceleration: tuple
     gyro: tuple
     angles: tuple
@@ -53,7 +63,7 @@ def parse_sample(line):
 
 
 def build_motor_command(kind, target):
-    """Build a Wi-Fi motor command using the ODrive units."""
+    """使用 N·m 或圈/s 生成控制命令，无需换算或指定动作时长。"""
     try:
         value = float(target)
     except (TypeError, ValueError, OverflowError):
@@ -81,7 +91,7 @@ def transform(matrix, point):
 
 
 def rotation(angles):
-    """Body to world: Rz(yaw) * Ry(pitch) * Rx(roll), right-handed, Z up."""
+    """按 Rz(yaw) × Ry(pitch) × Rx(roll) 将车体坐标转到 Z 向上的世界坐标。"""
     roll, pitch, yaw = map(math.radians, angles)
     cr, sr = math.cos(roll), math.sin(roll)
     cp, sp = math.cos(pitch), math.sin(pitch)
@@ -99,7 +109,7 @@ def matrix_angles(matrix):
         roll = math.atan2(matrix[2][1], matrix[2][2])
         yaw = math.atan2(matrix[1][0], matrix[0][0])
     else:
-        # At gimbal lock roll/yaw are coupled. Choose yaw=0 while preserving R.
+        # 俯仰为 ±90° 时 Roll 和 Yaw 无法独立确定。取 Yaw=0，保持等价旋转。
         roll = math.atan2(-matrix[1][2], matrix[1][1])
         yaw = 0.
     values = tuple(map(math.degrees, (roll, pitch, yaw)))
@@ -127,7 +137,7 @@ def load_reference(path):
 
 
 def save_reference(path, angles):
-    """Replace atomically: an interrupted write must not destroy the old zero."""
+    """先完整写入临时文件，再原子替换零点文件，避免中途退出破坏旧值。"""
     angles = reference_angles(angles)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -215,6 +225,8 @@ class Stream:
 
 
 class WifiStream:
+    """把 Wi-Fi 姿态包转成查看器通用的 Sample，控制状态仍保留在客户端。"""
+
     def __init__(self, address='192.168.4.1', port=3334):
         from wifi_client import WifiClient
         self.client = WifiClient(address, port)
@@ -388,8 +400,7 @@ class Viewer:
 
     def can_configure_motors(self):
         client = self.stream.client
-        return (bool(client.token) and time.monotonic()-client.last_received <= .3
-                and client.telemetry.get('mode') == 0)
+        return client.has_fresh_link() and client.telemetry.get('mode') == MODE_STOPPED
 
     def edit_motor_limits(self):
         dialog = tk.Toplevel(self.root)
@@ -438,20 +449,25 @@ class Viewer:
     def refresh_motor_controls(self):
         client = self.stream.client
         mode = client.telemetry.get('mode')
-        connected = bool(client.token) and time.monotonic()-client.last_received <= .3
+        connected = client.has_fresh_link()
         limits = self.motor_limits()
         can_configure = self.can_configure_motors()
         available = ()
+        # 根据板端模式决定哪些按钮可点。固件收到请求后仍会检查当前模式和限幅。
         if connected and limits is not None:
-            available = {0: ('torque', 'speed'), 2: ('torque',), 3: ('speed',)}.get(mode, ())
+            available = {
+                MODE_STOPPED: ('torque', 'speed'),
+                MODE_MANUAL_TORQUE: ('torque',),
+                MODE_MANUAL_SPEED: ('speed',),
+            }.get(mode, ())
         if not connected:
             message = 'Wi-Fi 未连接，等待电机控制数据'
-        elif mode == -1:
+        elif mode == MODE_IMU_ONLY:
             message = '当前固件仅采集陀螺仪；控制电机需烧录电机控制固件'
-        elif mode == 1:
+        elif mode == MODE_BALANCING:
             message = '直立控制运行中。切换到手动控制前请先停机。'
-        elif mode in (2, 3):
-            axis = '电机 0 力矩' if mode == 2 else '电机 1 转速'
+        elif mode in (MODE_MANUAL_TORQUE, MODE_MANUAL_SPEED):
+            axis = '电机 0 力矩' if mode == MODE_MANUAL_TORQUE else '电机 1 转速'
             message = f'正在保持{axis}。可更新当前目标，切换电机前请先停机。'
         elif available:
             torque, flywheel, wheel = limits
@@ -486,6 +502,7 @@ class Viewer:
         return True
 
     def set_reference(self):
+        # 保存电脑端的显示参考。ESP32 的平衡参考由 Wi-Fi 指令 zero 单独设置。
         if self.sample and time.monotonic() - self.received_at < 1.:
             try:
                 save_reference(self.reference_file, self.sample.angles)
@@ -512,7 +529,7 @@ class Viewer:
         self.apply_reference(angles, '相对姿态 · 已加载保存零点')
 
     def apply_reference(self, angles, message):
-        # A relative orientation is a matrix composition, not Euler subtraction.
+        # 参考旋转的转置就是它的逆。显示时以它左乘当前旋转，得到相对参考的姿态。
         self.reference = transpose(rotation(angles))
         self.relative = True
         self.mode.config(text=message, fg=MUTED)
@@ -544,7 +561,7 @@ class Viewer:
                 label.config(text=f'{value:+8.2f}°')
 
     def reset_history(self):
-        # A reference change starts a new trace; do not mix two coordinate frames.
+        # 不同参考下的角度不能接在同一条轨迹上。
         self.history.clear()
         angles = self.display_angles()
         if angles is not None:
@@ -577,30 +594,35 @@ class Viewer:
             self.drag_position = event.x, event.y
             self.draw()
 
+    def refresh_wifi_status(self):
+        """用最近的板端状态刷新控制面板，并显示指令接收或执行提示。"""
+        self.refresh_motor_controls()
+        data = self.stream.client.telemetry
+        if data:
+            mode = data.get('mode', MODE_IMU_ONLY)
+            if mode == MODE_IMU_ONLY:
+                details = '独立陀螺仪采集 · Wi-Fi 100 Hz · 断线继续采集'
+            else:
+                # 编码器实际速度只在平衡模式有效，手动模式显示发送的目标。
+                measured_speed = (
+                    f"{data.get('speed_turns_s', 0):+.3f} 圈/s"
+                    if mode == MODE_BALANCING and data.get('encoder_valid') is True else '—'
+                )
+                details = (f"MCU 模式 {mode}  |  倾角 {data.get('tilt_deg', 0):+.3f}°  |  "
+                           f"编码器 {measured_speed}  |  "
+                           f"驱动轮目标 {data.get('wheel_target', 0):+.3f} 圈/s  |  "
+                           f"目标力矩 {data.get('torque_nm', 0):+.4f} Nm  |  "
+                           f"MCU 零点：{'已保存' if data.get('zero_valid') else '未设置'}")
+            self.wifi_details.config(text=details)
+        self.wifi_event.config(text=self.stream.client.last_event)
+
     def update(self):
         now = time.monotonic()
         self.frame_times.append(now)
         try:
             sample, count = self.stream.poll()
             if isinstance(self.stream, WifiStream):
-                self.refresh_motor_controls()
-                data = self.stream.client.telemetry
-                if data:
-                    mode = data.get('mode', -1)
-                    if mode == -1:
-                        details = '独立陀螺仪采集 · Wi-Fi 100 Hz · 断线继续采集'
-                    else:
-                        measured_speed = (
-                            f"{data.get('speed_turns_s', 0):+.3f} 圈/s"
-                            if mode == 1 and data.get('encoder_valid') is True else '—'
-                        )
-                        details = (f"MCU 模式 {mode}  |  倾角 {data.get('tilt_deg', 0):+.3f}°  |  "
-                                   f"编码器 {measured_speed}  |  "
-                                   f"驱动轮目标 {data.get('wheel_target', 0):+.3f} 圈/s  |  "
-                                   f"目标力矩 {data.get('torque_nm', 0):+.4f} Nm  |  "
-                                   f"MCU 零点：{'已保存' if data.get('zero_valid') else '未设置'}")
-                    self.wifi_details.config(text=details)
-                self.wifi_event.config(text=self.stream.client.last_event)
+                self.refresh_wifi_status()
             if sample:
                 self.sample = sample
                 self.received_at = now
@@ -629,7 +651,7 @@ class Viewer:
         else:
             self.status.config(text='● 等待数据', fg='#f8cb72')
         self.draw()
-        # Use a deadline so render/parse time does not add to the 10 ms period.
+        # 用下次刷新时刻安排回调，避免把解析和绘制耗时叠加到每个 10 ms 周期。
         finished = time.monotonic()
         self.next_update = max(self.next_update + 1. / REFRESH_HZ, finished)
         self.root.after(max(1, math.ceil((self.next_update-finished)*1000)), self.update)

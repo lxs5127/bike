@@ -2,9 +2,10 @@
 
 #include <math.h>
 #include <stddef.h>
-#include "sdkconfig.h"
-#include "esp_timer.h"
+
 #include "app_config.h"
+#include "esp_timer.h"
+#include "sdkconfig.h"
 
 #if CONFIG_BIKE_IMU_JY901P
 #include "driver/gpio.h"
@@ -13,18 +14,18 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-/* JY901P 标准寄存器协议：地址为 7 位，每个寄存器为 16 位、小端存储。
+/* JY901P 使用 7 位 I2C 地址，寄存器值为 16 位小端。寄存器地址按 16 位值递增。
  * 参考：https://github.com/WITMOTION/WitIIC_JY901/tree/main/ESP32/main */
 #define JY901P_REG_RATE       0x03U
 #define JY901P_REG_BANDWIDTH  0x1fU
-#define JY901P_REG_GX         0x37U
 #define JY901P_REG_AX         0x34U
+#define JY901P_REG_GX         0x37U
 #define JY901P_REG_ROLL       0x3dU
 #define JY901P_REG_YAW        0x3fU
 #define JY901P_REG_KEY        0x69U
 #define JY901P_KEY_UNLOCK     0xb588U
 #define JY901P_RATE_200HZ     0x0bU
-/* 当前 FreeRTOS tick 为 10 ms，超时须至少一个 tick，不能直接填 5 ms。 */
+/* I2C 超时至少覆盖一个 FreeRTOS tick，兼容使用 100 Hz tick 的旧配置。 */
 #define JY901P_TIMEOUT_MS     20
 #define JY901P_PI             3.14159265358979323846f
 
@@ -39,6 +40,7 @@ static uint16_t read_u16_le(const uint8_t *bytes)
 
 static int32_t read_i16_le(const uint8_t *bytes)
 {
+    /* 从二进制补码恢复负值，避免超范围的无符号到有符号转换。 */
     uint16_t value = read_u16_le(bytes);
     return value < 0x8000U ? (int32_t)value : (int32_t)value - 65536;
 }
@@ -57,7 +59,7 @@ static esp_err_t write_register(uint8_t reg, uint16_t value)
 
 static esp_err_t configure_register(uint8_t reg, uint16_t value)
 {
-    /* 图片中的解锁值 0xB588 在线上发送为 0x88、0xB5。每项配置单独解锁。 */
+    /* 每项寄存器配置都要单独解锁，再回读确认传感器接受了配置。 */
     esp_err_t result = write_register(JY901P_REG_KEY, JY901P_KEY_UNLOCK);
     if (result != ESP_OK) return result;
     vTaskDelay(pdMS_TO_TICKS(20));
@@ -76,6 +78,7 @@ static esp_err_t configure_register(uint8_t reg, uint16_t value)
 
 static void release_i2c(void)
 {
+    /* 创建顺序为总线、设备。初始化中途出错时按反序释放已有资源。 */
     s_ready = false;
     if (s_device) {
         i2c_master_bus_rm_device(s_device);
@@ -92,7 +95,9 @@ static esp_err_t jy901p_init(void)
     if (s_ready) return ESP_OK;
     if (CONFIG_BIKE_IMU_SDA_GPIO == CONFIG_BIKE_IMU_SCL_GPIO ||
         !GPIO_IS_VALID_OUTPUT_GPIO(CONFIG_BIKE_IMU_SDA_GPIO) ||
-        !GPIO_IS_VALID_OUTPUT_GPIO(CONFIG_BIKE_IMU_SCL_GPIO)) return ESP_ERR_INVALID_ARG;
+        !GPIO_IS_VALID_OUTPUT_GPIO(CONFIG_BIKE_IMU_SCL_GPIO)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     const i2c_master_bus_config_t bus = {
         .i2c_port = I2C_NUM_0,
         .sda_io_num = CONFIG_BIKE_IMU_SDA_GPIO,
@@ -111,6 +116,7 @@ static esp_err_t jy901p_init(void)
     };
     result = i2c_master_bus_add_device(s_bus, &device, &s_device);
     if (result != ESP_OK) goto fail;
+
     /* 等待传感器上电稳定；此时尚未创建采样和控制任务。 */
     vTaskDelay(pdMS_TO_TICKS(500));
     result = i2c_master_probe(s_bus, CONFIG_BIKE_IMU_I2C_ADDRESS, JY901P_TIMEOUT_MS);
@@ -119,7 +125,7 @@ static esp_err_t jy901p_init(void)
     if (result != ESP_OK) goto fail;
     result = configure_register(JY901P_REG_BANDWIDTH, CONFIG_BIKE_IMU_BANDWIDTH);
     if (result != ESP_OK) goto fail;
-    /* 只设置本次运行参数，不反复写 Flash，不自动校准或执行 Z 轴归零。 */
+    /* 采样率和带宽只写到本次运行的寄存器。 */
     vTaskDelay(pdMS_TO_TICKS(20));
     s_ready = true;
     ESP_LOGI("imu", "JY901P ready: I2C=%dHz rate=200Hz bandwidth_code=%d; X forward, Y left, Z up",
@@ -159,7 +165,7 @@ esp_err_t imu_port_read(imu_sample_t *sample)
         return ESP_ERR_INVALID_ARG;
     }
 #if CONFIG_BIKE_IMU_JY901P
-    /* 失败时绝不把旧数据标记为有效，也不沿用上一次读取的时间戳。 */
+    /* 先清除输出，读取失败时调用方收到无效样本和空时间戳。 */
     *sample = (imu_sample_t) {0};
     if (!s_ready) return ESP_ERR_INVALID_STATE;
     /* 同一次 IIC 读取加速度、角速度、磁场、姿态，共 12 个寄存器。
@@ -168,32 +174,35 @@ esp_err_t imu_port_read(imu_sample_t *sample)
     const int64_t started_us = esp_timer_get_time();
     esp_err_t result = read_registers(JY901P_REG_AX, bytes, sizeof(bytes));
     if (result != ESP_OK) return result;
+
+    /* I2C 操作成功也可能已耗时过久，控制端需要能及时使用的数据。 */
     if (esp_timer_get_time() - started_us > BIKE_MAX_SENSOR_AGE_US) return ESP_ERR_TIMEOUT;
+
     const int32_t gx = read_i16_le(bytes + (JY901P_REG_GX - JY901P_REG_AX) * 2U);
     const int32_t roll = read_i16_le(bytes + (JY901P_REG_ROLL - JY901P_REG_AX) * 2U);
     *sample = (imu_sample_t) {
-        /* 图片公式：角度 raw/32768*180°，角速度 raw/32768*2000°/s。
-         * 发布前换成 rad、rad/s；模块须按车体 X前/Y左/Z上安装。 */
+        /* 原始角度和角速度的满量程分别为 180° 和 2000°/s。控制端使用弧度。 */
         .roll_rad = (float)roll / 32768.0f * JY901P_PI,
         .roll_rate_rad_s = (float)gx / 32768.0f * (2000.0f * JY901P_PI / 180.0f),
-        /* IIC 数据块没有逐帧采样时间戳。用读取开始时间减一个 200 Hz 周期
-         * 估计采样时刻，不把完成时刻当作采样时刻；不含内部融合滤波延迟。 */
+        /* 用读取开始时刻减去一个 200 Hz 输出周期，保守估计样本时间。
+         * 这个估计只覆盖寄存器更新间隔，传感器内部融合延迟另计。 */
         .timestamp_us = started_us - BIKE_SENSOR_PERIOD_US,
         .valid = true,
     };
+    /* 可视化沿用传感器三轴量程，单位依次为 g、°/s、°。 */
     for (unsigned i = 0; i < 3; ++i) {
-        sample->acceleration_g[i] = (float)read_i16_le(bytes + i*2U) / 32768.f * 16.f;
-        sample->gyro_deg_s[i] = (float)read_i16_le(bytes + (3U+i)*2U) / 32768.f * 2000.f;
-        sample->angles_deg[i] = (float)read_i16_le(bytes + (9U+i)*2U) / 32768.f * 180.f;
+        sample->acceleration_g[i] = (float)read_i16_le(bytes + i * 2U) / 32768.f * 16.f;
+        sample->gyro_deg_s[i] = (float)read_i16_le(bytes + (3U + i) * 2U) / 32768.f * 2000.f;
+        sample->angles_deg[i] = (float)read_i16_le(bytes + (9U + i) * 2U) / 32768.f * 180.f;
     }
     return ESP_OK;
 #elif CONFIG_BIKE_MOCK_HARDWARE
     const int64_t now_us = esp_timer_get_time();
-    float roll = 0.0034906585f; /* fixed fallback: 0.2 degrees */
+    float roll = 0.0034906585f; /* 模拟回退值：0.2°。 */
     float rate = 0.0f;
 #if CONFIG_BIKE_MOCK_MOTION
-    /* Reduce time modulo one period before converting to float, so the
-     * waveform retains precision during long runs. Gyro is d(roll)/dt. */
+    /* 先取周期内相位，再转浮点，避免运行时间过长降低精度。
+     * 用横滚角的导数生成角速度，使两个模拟量保持一致。 */
     const float two_pi = 6.28318530718f;
     const float phase = two_pi * (float)((now_us - s_start_us) % BIKE_MOCK_ROLL_PERIOD_US)
                         / (float)BIKE_MOCK_ROLL_PERIOD_US;

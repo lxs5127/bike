@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 import unittest
 
-SOURCE = Path(__file__).resolve().parents[1] / 'standalone/odrive_uart/main'
+SOURCE = Path(__file__).resolve().parents[1] / 'main/control'
 HARNESS = r'''
 #include <assert.h>
 #include <float.h>
